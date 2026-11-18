@@ -1,0 +1,61 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "sum by (outcome) (rate(rate_limiter_decisions_total[1m]))", "legendFormat": "{{outcome}}", "refId": "A" }],
+      "title": "Rate limit decisions per second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "A" }],
+      "title": "Redis-backed decision latency (p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [{ "expr": "sum by (status) (rate(gateway_http_requests_total[1m]))", "legendFormat": "HTTP {{status}}", "refId": "A" }],
+      "title": "Gateway requests per second by result",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [{ "expr": "increase(rate_limiter_store_errors_total[5m])", "legendFormat": "Redis errors", "refId": "A" }],
+      "title": "Redis errors in the last five minutes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [{ "expr": "increase(rate_limiter_fail_open_total[5m])", "legendFormat": "Fail-open decisions", "refId": "A" }],
+      "title": "Allowed without Redis in the last five minutes",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["rate-limiter", "redis"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Distributed Rate Limiter",
+  "uid": "distributed-rate-limiter",
+  "version": 1
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "resource-per-client",
+    "path": "/v1/resource",
+    "capacity": 10,
+    "refill_per_second": 2,
+    "key_ttl": "60s",
+    "identity": "auto"
+  },
+  {
+    "name": "phase1-shared-quota-demo",
+    "path": "/v1/phase1-demo",
+    "capacity": 5,
+    "refill_per_second": 2,
+    "key_ttl": "60s",
+    "identity": "auto"
+  }
+]
