@@ -1,0 +1,1 @@
+{"redis":{"name":"redis","listen":"[::]:6379","upstream":"redis:6379","enabled":true,"Logger":{},"toxics":[]}}

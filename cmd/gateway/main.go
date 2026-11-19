@@ -128,14 +128,15 @@ func loadRules() ([]engine.Rule, error) {
 		return nil, errors.New("read LIMIT_RULES_FILE: " + err.Error())
 	}
 	var rawRules []struct {
-		Name         string  `json:"name"`
-		Path         string  `json:"path"`
-		Capacity     float64 `json:"capacity"`
-		RefillPerSec float64 `json:"refill_per_second"`
-		KeyTTL       string  `json:"key_ttl"`
-		Algorithm    string  `json:"algorithm"`
-		Window       string  `json:"window"`
-		Identity     string  `json:"identity"`
+		Name          string  `json:"name"`
+		Path          string  `json:"path"`
+		Capacity      float64 `json:"capacity"`
+		RefillPerSec  float64 `json:"refill_per_second"`
+		KeyTTL        string  `json:"key_ttl"`
+		Algorithm     string  `json:"algorithm"`
+		Window        string  `json:"window"`
+		Identity      string  `json:"identity"`
+		FailurePolicy string  `json:"failure_policy"`
 	}
 	if err := json.Unmarshal(data, &rawRules); err != nil {
 		return nil, errors.New("parse LIMIT_RULES_FILE: " + err.Error())
@@ -157,7 +158,7 @@ func loadRules() ([]engine.Rule, error) {
 				return nil, errors.New("rule " + raw.Name + ": invalid window")
 			}
 		}
-		rule := engine.Rule{Name: raw.Name, Path: raw.Path, Capacity: raw.Capacity, RefillPerSec: raw.RefillPerSec, KeyTTL: ttl, Algorithm: raw.Algorithm, Window: window, Identity: raw.Identity}
+		rule := engine.Rule{Name: raw.Name, Path: raw.Path, Capacity: raw.Capacity, RefillPerSec: raw.RefillPerSec, KeyTTL: ttl, Algorithm: raw.Algorithm, Window: window, Identity: raw.Identity, FailurePolicy: raw.FailurePolicy}
 		if err := rule.Validate(); err != nil {
 			return nil, err
 		}

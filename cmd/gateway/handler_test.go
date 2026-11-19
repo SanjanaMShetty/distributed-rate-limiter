@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +85,67 @@ func TestGatewayFailsOpenOnRedisErrorWithinBudget(t *testing.T) {
 	}
 	if time.Since(started) > time.Second {
 		t.Fatalf("Redis outage blocked request for %s", time.Since(started))
+	}
+}
+
+func TestGatewayReturns503ForFailClosedRedisOutage(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := engine.Rule{Name: "closed", Path: "/v1/test", Capacity: 2, RefillPerSec: 1, KeyTTL: time.Minute, Identity: "auto", FailurePolicy: engine.FailureClosed}
+	metrics := observability.NewMetrics()
+	limiter, err := engine.New(client, []engine.Rule{rule}, 100*time.Millisecond, metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newHandler(limiter, client, metrics, nil)
+	server.SetError("ERR simulated outage")
+	req := httptest.NewRequest("GET", "/v1/test", nil)
+	req.Header.Set("X-API-Key", "outage-client")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("RateLimit-Degraded") != engine.FailureClosed {
+		t.Fatalf("expected degraded 503, got status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
+func TestGatewayUsesLocalQuotaDuringRedisOutage(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := engine.Rule{Name: "local", Path: "/v1/test", Capacity: 2, RefillPerSec: 1, KeyTTL: time.Minute, Identity: "auto", FailurePolicy: engine.FailureLocal}
+	metrics := observability.NewMetrics()
+	limiter, err := engine.New(client, []engine.Rule{rule}, 100*time.Millisecond, metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newHandler(limiter, client, metrics, nil)
+	server.SetError("ERR simulated outage")
+	for i, wantStatus := range []int{http.StatusOK, http.StatusOK, http.StatusTooManyRequests} {
+		req := httptest.NewRequest("GET", "/v1/test", nil)
+		req.Header.Set("X-API-Key", "outage-client")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != wantStatus || response.Header().Get("RateLimit-Degraded") != engine.FailureLocal {
+			t.Fatalf("request %d: status=%d headers=%v body=%s", i+1, response.Code, response.Header(), response.Body.String())
+		}
+		if i == 0 && (response.Header().Get("RateLimit-Remaining") != "1" || !strings.Contains(response.Body.String(), `"remaining":1`) || !strings.Contains(response.Body.String(), `"reset_at":"`)) {
+			t.Fatalf("local fallback response should report quota and reset details: headers=%v body=%s", response.Header(), response.Body.String())
+		}
+		if i == 0 {
+			resetHeader, parseErr := strconv.ParseInt(response.Header().Get("RateLimit-Reset"), 10, 64)
+			var body map[string]interface{}
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			resetAt, timeErr := time.Parse(time.RFC3339Nano, body["reset_at"].(string))
+			if parseErr != nil || timeErr != nil || resetHeader != 1 || !resetAt.After(time.Now()) {
+				t.Fatalf("reset should be reported as a relative second count and future UTC time: header=%q body=%v parseErr=%v timeErr=%v", response.Header().Get("RateLimit-Reset"), body, parseErr, timeErr)
+			}
+		}
+		if i == 2 && (response.Header().Get("RateLimit-Remaining") != "0" || response.Header().Get("Retry-After") == "") {
+			t.Fatalf("local denial should report zero remaining and retry timing: headers=%v", response.Header())
+		}
 	}
 }
 

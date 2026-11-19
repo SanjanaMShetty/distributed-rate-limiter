@@ -1,0 +1,28 @@
+## Recovery requests
+
+### Gateway port 8080
+HTTP/1.1 200 OK
+Content-Type: application/json
+Ratelimit-Limit: 10
+Ratelimit-Remaining: 9
+Ratelimit-Reset: 1
+Retry-After: 0
+Date: Thu, 19 Nov 2026 14:11:59 GMT
+Content-Length: 114
+
+{"allowed":true,"limit":10,"message":"request allowed","remaining":9,"reset_at":"2026-11-19T14:12:00.093766711Z"}
+
+### Gateway port 8081
+HTTP/1.1 200 OK
+Content-Type: application/json
+Ratelimit-Limit: 10
+Ratelimit-Remaining: 8
+Ratelimit-Reset: 1
+Retry-After: 0
+Date: Thu, 19 Nov 2026 14:11:59 GMT
+Content-Length: 114
+
+{"allowed":true,"limit":10,"message":"request allowed","remaining":8,"reset_at":"2026-11-19T14:12:00.593671217Z"}
+
+PONG
+

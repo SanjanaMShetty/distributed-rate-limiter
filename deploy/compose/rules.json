@@ -36,5 +36,25 @@
     "algorithm": "sliding_window_counter",
     "window": "1s",
     "identity": "auto"
+  },
+  {
+    "name": "local-fallback-demo",
+    "path": "/v1/local-fallback-demo",
+    "capacity": 5,
+    "refill_per_second": 2,
+    "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "auto",
+    "failure_policy": "local"
+  },
+  {
+    "name": "fail-closed-demo",
+    "path": "/v1/fail-closed-demo",
+    "capacity": 5,
+    "refill_per_second": 2,
+    "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "auto",
+    "failure_policy": "fail_closed"
   }
 ]

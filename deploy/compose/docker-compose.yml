@@ -10,13 +10,24 @@ services:
       timeout: 2s
       retries: 15
 
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.13.0
+    command: ["-config", "/etc/toxiproxy/toxiproxy.json", "-host", "0.0.0.0"]
+    volumes:
+      - ./toxiproxy.json:/etc/toxiproxy/toxiproxy.json:ro
+    ports:
+      - "127.0.0.1:8474:8474"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   gateway-a:
     build:
       context: ../..
       dockerfile: Dockerfile
     environment:
       HTTP_ADDR: ":8080"
-      REDIS_ADDR: redis:6379
+      REDIS_ADDR: toxiproxy:6379
       LIMIT_RULES_FILE: /etc/rate-limiter/rules.json
       REDIS_TIMEOUT: 10ms
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
@@ -25,8 +36,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      redis:
-        condition: service_healthy
+      toxiproxy:
+        condition: service_started
 
   gateway-b:
     build:
@@ -34,7 +45,7 @@ services:
       dockerfile: Dockerfile
     environment:
       HTTP_ADDR: ":8080"
-      REDIS_ADDR: redis:6379
+      REDIS_ADDR: toxiproxy:6379
       LIMIT_RULES_FILE: /etc/rate-limiter/rules.json
       REDIS_TIMEOUT: 10ms
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
@@ -43,8 +54,8 @@ services:
     ports:
       - "8081:8080"
     depends_on:
-      redis:
-        condition: service_healthy
+      toxiproxy:
+        condition: service_started
 
   prometheus:
     image: prom/prometheus:latest

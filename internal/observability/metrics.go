@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 type Metrics struct {
@@ -12,6 +13,9 @@ type Metrics struct {
 	decisionDuration    prometheus.Histogram
 	storeErrors         prometheus.Counter
 	failOpenDecisions   prometheus.Counter
+	circuitOpen         prometheus.Counter
+	inFlightRejected    prometheus.Counter
+	degradedDecisions   *prometheus.CounterVec
 	configVersion       *prometheus.GaugeVec
 	httpRequests        *prometheus.CounterVec
 	httpRequestDuration prometheus.Histogram
@@ -38,6 +42,18 @@ func NewMetrics() *Metrics {
 			Name: "rate_limiter_fail_open_total",
 			Help: "Number of requests allowed because Redis was unavailable or timed out.",
 		}),
+		circuitOpen: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rate_limiter_circuit_open_total",
+			Help: "Number of checks served without contacting Redis because the circuit breaker was open.",
+		}),
+		inFlightRejected: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rate_limiter_redis_inflight_rejected_total",
+			Help: "Number of checks diverted from Redis because the in-flight cap was reached.",
+		}),
+		degradedDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rate_limiter_degraded_decisions_total",
+			Help: "Rate-limit decisions made during Redis degradation, grouped by outage policy and result.",
+		}, []string{"policy", "decision"}),
 		configVersion: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rate_limiter_config_version_info",
 			Help: "The active normalized rate-limit configuration version on this gateway replica.",
@@ -52,7 +68,13 @@ func NewMetrics() *Metrics {
 			Buckets: prometheus.DefBuckets,
 		}),
 	}
-	registry.MustRegister(m.decisions, m.decisionDuration, m.storeErrors, m.failOpenDecisions, m.configVersion, m.httpRequests, m.httpRequestDuration)
+	registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		m.decisions, m.decisionDuration, m.storeErrors, m.failOpenDecisions,
+		m.circuitOpen, m.inFlightRejected, m.degradedDecisions, m.configVersion,
+		m.httpRequests, m.httpRequestDuration,
+	)
 	return m
 }
 
@@ -66,6 +88,14 @@ func (m *Metrics) ObserveDecision(outcome string, elapsed time.Duration) {
 func (m *Metrics) ObserveStoreError() { m.storeErrors.Inc() }
 
 func (m *Metrics) ObserveFailOpen() { m.failOpenDecisions.Inc() }
+
+func (m *Metrics) ObserveCircuitOpen() { m.circuitOpen.Inc() }
+
+func (m *Metrics) ObserveRedisInFlightRejected() { m.inFlightRejected.Inc() }
+
+func (m *Metrics) ObserveDegradedPolicy(policy, decision string) {
+	m.degradedDecisions.WithLabelValues(policy, decision).Inc()
+}
 
 func (m *Metrics) SetConfigVersion(version string) {
 	m.configVersion.Reset()

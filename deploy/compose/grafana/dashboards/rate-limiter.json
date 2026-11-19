@@ -55,6 +55,60 @@
       "targets": [{ "expr": "rate_limiter_config_version_info", "legendFormat": "{{instance}} {{version}}", "refId": "A" }],
       "title": "Active limiter configuration version by gateway",
       "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "id": 7,
+      "targets": [{ "expr": "sum by (policy, decision) (rate(rate_limiter_degraded_decisions_total[1m]))", "legendFormat": "{{policy}} / {{decision}}", "refId": "A" }],
+      "title": "Degraded decisions by outage policy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "id": 8,
+      "targets": [{ "expr": "rate_limiter_circuit_open_total", "legendFormat": "Circuit open", "refId": "A" }],
+      "title": "Requests bypassing Redis due to open circuit",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "id": 9,
+      "targets": [{ "expr": "rate_limiter_redis_inflight_rejected_total", "legendFormat": "In-flight cap", "refId": "A" }],
+      "title": "Checks diverted by Redis in-flight cap",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "id": 10,
+      "targets": [{ "expr": "go_goroutines", "legendFormat": "{{instance}}", "refId": "A" }],
+      "title": "Gateway goroutines",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "id": 11,
+      "targets": [{ "expr": "process_resident_memory_bytes", "legendFormat": "{{instance}} RSS", "refId": "A" }],
+      "title": "Gateway resident memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "id": 12,
+      "targets": [{ "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "{{instance}} heap", "refId": "A" }],
+      "title": "Gateway allocated heap",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",

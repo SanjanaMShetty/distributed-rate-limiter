@@ -263,6 +263,127 @@ func TestStalledRedisConnectionTimesOutAndFailsOpen(t *testing.T) {
 	}
 }
 
+func TestLocalFailurePolicyBoundsRequestsPerReplicaDuringRedisOutage(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := Rule{Name: "local-outage", Path: "/local", Capacity: 3, RefillPerSec: 1, KeyTTL: 10 * time.Second, Identity: "api_key", FailurePolicy: FailureLocal}
+	limiter, err := New(client, []Rule{rule}, 100*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetError("ERR simulated outage")
+	for i := 0; i < 4; i++ {
+		decision, err := limiter.Check(context.Background(), rule.Path, "same-client")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if decision.Allowed != (i < 3) || !decision.Degraded || decision.DegradedPolicy != FailureLocal {
+			t.Fatalf("request %d: unexpected local outage decision: %+v", i+1, decision)
+		}
+	}
+}
+
+func TestConcurrentLocalFallbackEnforcesPerReplicaCapacity(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := Rule{Name: "local-concurrent", Path: "/local-concurrent", Capacity: 5, RefillPerSec: 0.1, KeyTTL: time.Minute, Identity: "api_key", FailurePolicy: FailureLocal}
+	limiter, err := New(client, []Rule{rule}, 100*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetError("ERR simulated outage")
+
+	const requests = 100
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+	for i := 0; i < requests; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			decision, err := limiter.Check(context.Background(), rule.Path, "same-client")
+			if err != nil {
+				t.Errorf("Check: %v", err)
+				return
+			}
+			if decision.Allowed {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if allowed != int(rule.Capacity) {
+		t.Fatalf("local fallback allowed %d of %d concurrent outage checks; want %v", allowed, requests, rule.Capacity)
+	}
+}
+
+func TestFailClosedPolicyDeniesDuringRedisOutage(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := Rule{Name: "closed-outage", Path: "/closed", Capacity: 3, RefillPerSec: 1, KeyTTL: 10 * time.Second, Identity: "api_key", FailurePolicy: FailureClosed}
+	limiter, err := New(client, []Rule{rule}, 100*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetError("ERR simulated outage")
+	decision, err := limiter.Check(context.Background(), rule.Path, "same-client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Allowed || !decision.Degraded || decision.DegradedPolicy != FailureClosed {
+		t.Fatalf("expected degraded fail-closed denial, got %+v", decision)
+	}
+}
+
+func TestCircuitBreakerOpensAndAllowsOneRecoveryProbe(t *testing.T) {
+	breaker := newCircuitBreaker(2, 20*time.Millisecond)
+	breaker.failure()
+	if !breaker.allow() {
+		t.Fatal("breaker should remain closed before threshold")
+	}
+	breaker.failure()
+	if breaker.allow() {
+		t.Fatal("breaker should reject checks while open")
+	}
+	time.Sleep(25 * time.Millisecond)
+	if !breaker.allow() {
+		t.Fatal("breaker should allow one half-open probe after cooldown")
+	}
+	if breaker.allow() {
+		t.Fatal("breaker allowed more than one concurrent half-open probe")
+	}
+	breaker.success()
+	if !breaker.allow() {
+		t.Fatal("successful probe should close the breaker")
+	}
+}
+
+func TestRedisInFlightCapUsesConfiguredOutagePolicyWithoutQueueing(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	defer client.Close()
+	rule := Rule{Name: "cap", Path: "/cap", Capacity: 2, RefillPerSec: 1, KeyTTL: 10 * time.Second, Identity: "api_key", FailurePolicy: FailureClosed}
+	limiter, err := New(client, []Rule{rule}, 100*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < cap(limiter.inFlight); i++ {
+		limiter.inFlight <- struct{}{}
+	}
+	decision, err := limiter.Check(context.Background(), rule.Path, "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Allowed || !decision.Degraded || decision.DegradedPolicy != FailureClosed {
+		t.Fatalf("in-flight cap should apply fail-closed policy immediately: %+v", decision)
+	}
+}
+
 func TestCheckRejectsUnknownRuleAndTooShortTTL(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

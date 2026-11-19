@@ -140,15 +140,22 @@ const (
 	AlgorithmSlidingWindowCounter = "sliding_window_counter"
 )
 
+const (
+	FailureOpen   = "fail_open"
+	FailureClosed = "fail_closed"
+	FailureLocal  = "local"
+)
+
 type Rule struct {
-	Name         string        `json:"name"`
-	Path         string        `json:"path"`
-	Capacity     float64       `json:"capacity"`
-	RefillPerSec float64       `json:"refill_per_second"`
-	KeyTTL       time.Duration `json:"-"`
-	Algorithm    string        `json:"algorithm"`
-	Window       time.Duration `json:"-"`
-	Identity     string        `json:"identity"`
+	Name          string        `json:"name"`
+	Path          string        `json:"path"`
+	Capacity      float64       `json:"capacity"`
+	RefillPerSec  float64       `json:"refill_per_second"`
+	KeyTTL        time.Duration `json:"-"`
+	Algorithm     string        `json:"algorithm"`
+	Window        time.Duration `json:"-"`
+	Identity      string        `json:"identity"`
+	FailurePolicy string        `json:"failure_policy,omitempty"`
 }
 
 func (r Rule) Validate() error {
@@ -185,19 +192,30 @@ func (r Rule) Validate() error {
 	}
 	switch r.Identity {
 	case "auto", "api_key", "user_id", "ip":
-		return nil
 	default:
 		return fmt.Errorf("rule %q identity must be auto, api_key, user_id, or ip", r.Name)
 	}
+	policy := r.FailurePolicy
+	if policy == "" {
+		policy = FailureOpen
+	}
+	if policy != FailureOpen && policy != FailureClosed && policy != FailureLocal {
+		return fmt.Errorf("rule %q failure_policy must be fail_open, fail_closed, or local", r.Name)
+	}
+	if policy == FailureLocal && algorithm != AlgorithmTokenBucket {
+		return fmt.Errorf("rule %q local failure policy currently requires token_bucket algorithm", r.Name)
+	}
+	return nil
 }
 
 type Decision struct {
-	Allowed    bool          `json:"allowed"`
-	Degraded   bool          `json:"degraded,omitempty"`
-	Limit      int           `json:"limit"`
-	Remaining  int           `json:"remaining"`
-	RetryAfter time.Duration `json:"-"`
-	ResetAfter time.Duration `json:"-"`
+	Allowed        bool          `json:"allowed"`
+	Degraded       bool          `json:"degraded,omitempty"`
+	DegradedPolicy string        `json:"degraded_policy,omitempty"`
+	Limit          int           `json:"limit"`
+	Remaining      int           `json:"remaining"`
+	RetryAfter     time.Duration `json:"-"`
+	ResetAfter     time.Duration `json:"-"`
 }
 
 type Observer interface {
@@ -210,7 +228,16 @@ type Engine struct {
 	rules    map[string]Rule
 	timeout  time.Duration
 	observer Observer
+	fallback *localFallback
+	breaker  *circuitBreaker
+	inFlight chan struct{}
 }
+
+const (
+	defaultBreakerThreshold = 5
+	defaultBreakerOpenFor   = time.Second
+	defaultMaxRedisInFlight = 256
+)
 
 func New(client redis.UniversalClient, rules []Rule, timeout time.Duration, observer Observer) (*Engine, error) {
 	if client == nil {
@@ -237,10 +264,18 @@ func New(client redis.UniversalClient, rules []Rule, timeout time.Duration, obse
 		if rule.Algorithm == "" {
 			rule.Algorithm = AlgorithmTokenBucket
 		}
+		if rule.FailurePolicy == "" {
+			rule.FailurePolicy = FailureOpen
+		}
 		byPath[rule.Path] = rule
 		byName[rule.Name] = true
 	}
-	return &Engine{client: client, rules: byPath, timeout: timeout, observer: observer}, nil
+	return &Engine{
+		client: client, rules: byPath, timeout: timeout, observer: observer,
+		fallback: newLocalFallback(10000, 5*time.Minute),
+		breaker:  newCircuitBreaker(defaultBreakerThreshold, defaultBreakerOpenFor),
+		inFlight: make(chan struct{}, defaultMaxRedisInFlight),
+	}, nil
 }
 
 func (e *Engine) Rules() []Rule {
@@ -255,7 +290,7 @@ func (e *Engine) Rules() []Rule {
 func (e *Engine) ConfigVersion() string {
 	parts := make([]string, 0, len(e.rules))
 	for _, rule := range e.Rules() {
-		parts = append(parts, fmt.Sprintf("%s|%s|%s|%g|%g|%s|%s|%d", rule.Name, rule.Path, rule.Algorithm, rule.Capacity, rule.RefillPerSec, rule.Identity, rule.KeyTTL, rule.Window))
+		parts = append(parts, fmt.Sprintf("%s|%s|%s|%g|%g|%s|%s|%d|%s", rule.Name, rule.Path, rule.Algorithm, rule.Capacity, rule.RefillPerSec, rule.Identity, rule.KeyTTL, rule.Window, rule.FailurePolicy))
 	}
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return hex.EncodeToString(digest[:8])
@@ -273,9 +308,24 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 		return Decision{}, errors.New("subject must contain between 1 and 256 bytes")
 	}
 	key := quotaKey(rule.Name, subject)
+	started := time.Now()
+	select {
+	case e.inFlight <- struct{}{}:
+		defer func() { <-e.inFlight }()
+	default:
+		if observer, ok := e.observer.(interface{ ObserveRedisInFlightRejected() }); ok {
+			observer.ObserveRedisInFlightRejected()
+		}
+		return e.recordDegraded(rule, key, started), nil
+	}
+	if !e.breaker.allow() {
+		if observer, ok := e.observer.(interface{ ObserveCircuitOpen() }); ok {
+			observer.ObserveCircuitOpen()
+		}
+		return e.recordDegraded(rule, key, started), nil
+	}
 	checkCtx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
-	started := time.Now()
 	var script string
 	var args []interface{}
 	switch rule.Algorithm {
@@ -298,16 +348,13 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 			e.observer.ObserveStoreError()
 		}
 		if ctx.Err() != nil {
+			e.breaker.abandonProbe()
 			return Decision{}, ctx.Err()
 		}
-		if e.observer != nil {
-			e.observer.ObserveDecision("allow_degraded", elapsed)
-			if failOpenObserver, ok := e.observer.(interface{ ObserveFailOpen() }); ok {
-				failOpenObserver.ObserveFailOpen()
-			}
-		}
-		return Decision{Allowed: true, Degraded: true, Limit: int(math.Ceil(rule.Capacity)), Remaining: -1}, nil
+		e.breaker.failure()
+		return e.recordDegraded(rule, key, started), nil
 	}
+	e.breaker.success()
 	values, ok := result.([]interface{})
 	if !ok || len(values) != 4 {
 		return Decision{}, errors.New("unexpected Redis script response")
@@ -339,6 +386,43 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 		Allowed: allowed == 1, Limit: int(math.Ceil(rule.Capacity)), Remaining: int(remaining),
 		RetryAfter: time.Duration(retryMS) * time.Millisecond, ResetAfter: time.Duration(resetMS) * time.Millisecond,
 	}, nil
+}
+
+func (e *Engine) recordDegraded(rule Rule, key string, started time.Time) Decision {
+	decision := e.degradedDecision(rule, key)
+	if e.observer != nil {
+		outcome := "deny_degraded"
+		if decision.Allowed {
+			outcome = "allow_degraded"
+		}
+		e.observer.ObserveDecision(outcome, time.Since(started))
+		if policyObserver, ok := e.observer.(interface{ ObserveDegradedPolicy(policy, decision string) }); ok {
+			degradedDecision := "deny"
+			if decision.Allowed {
+				degradedDecision = "allow"
+			}
+			policyObserver.ObserveDegradedPolicy(rule.FailurePolicy, degradedDecision)
+		}
+		if failOpenObserver, ok := e.observer.(interface{ ObserveFailOpen() }); ok && rule.FailurePolicy == FailureOpen && decision.Allowed {
+			failOpenObserver.ObserveFailOpen()
+		}
+	}
+	return decision
+}
+
+func (e *Engine) degradedDecision(rule Rule, key string) Decision {
+	decision := Decision{Degraded: true, DegradedPolicy: rule.FailurePolicy, Limit: int(math.Ceil(rule.Capacity)), Remaining: -1}
+	switch rule.FailurePolicy {
+	case FailureClosed:
+		decision.Allowed = false
+	case FailureLocal:
+		local := e.fallback.check(key, rule.Capacity, rule.RefillPerSec)
+		decision.Allowed, decision.Remaining = local.allowed, local.remaining
+		decision.RetryAfter, decision.ResetAfter = local.retryAfter, local.resetAfter
+	default:
+		decision.Allowed = true
+	}
+	return decision
 }
 
 func quotaKey(ruleName, subject string) string {

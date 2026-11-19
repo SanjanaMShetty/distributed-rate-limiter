@@ -41,7 +41,12 @@ func newHandler(limiter *engine.Engine, redisClient redis.UniversalClient, metri
 			w.Header().Set("Content-Type", "application/json")
 			body := map[string]interface{}{"allowed": true, "limit": decision.Limit, "message": "request allowed"}
 			if decision.Degraded {
-				body["degraded"], body["remaining"], body["reset_at"] = true, nil, nil
+				body["degraded"] = true
+				if decision.DegradedPolicy == engine.FailureLocal {
+					body["remaining"], body["reset_at"] = decision.Remaining, resetTime(decision.ResetAfter)
+				} else {
+					body["remaining"], body["reset_at"] = nil, nil
+				}
 			} else {
 				body["remaining"], body["reset_at"] = decision.Remaining, resetTime(decision.ResetAfter)
 			}
@@ -68,11 +73,23 @@ func rateLimitHandler(limiter *engine.Engine, rule engine.Rule, trustedProxies [
 		}
 		w.Header().Set("RateLimit-Limit", strconv.Itoa(decision.Limit))
 		if decision.Degraded {
-			w.Header().Set("RateLimit-Degraded", "fail-open")
+			degradedHeader := decision.DegradedPolicy
+			if degradedHeader == engine.FailureOpen {
+				degradedHeader = "fail-open"
+			}
+			w.Header().Set("RateLimit-Degraded", degradedHeader)
+			if decision.DegradedPolicy == engine.FailureClosed {
+				writeError(w, http.StatusServiceUnavailable, "rate_limiter_unavailable", "rate limiter unavailable; request was not forwarded")
+				metrics.ObserveHTTP(rule.Path, http.StatusServiceUnavailable, time.Since(started))
+				return
+			}
+			if decision.DegradedPolicy == engine.FailureLocal {
+				w.Header().Set("RateLimit-Remaining", strconv.Itoa(decision.Remaining))
+				w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetSeconds(decision.ResetAfter), 10))
+			}
 		} else {
 			w.Header().Set("RateLimit-Remaining", strconv.Itoa(decision.Remaining))
-			resetAt := time.Now().Add(decision.ResetAfter)
-			w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
+			w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetSeconds(decision.ResetAfter), 10))
 		}
 		if !decision.Allowed {
 			resetAt := time.Now().Add(decision.ResetAfter)
@@ -86,7 +103,7 @@ func rateLimitHandler(limiter *engine.Engine, rule engine.Rule, trustedProxies [
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"allowed": false, "error": "rate_limit_exceeded", "message": "request limit exceeded",
 				"limit": decision.Limit, "remaining": decision.Remaining,
-				"retry_after_seconds": seconds, "reset_at": resetAt.UTC().Format(time.RFC3339),
+				"retry_after_seconds": seconds, "reset_at": resetAt.UTC().Format(time.RFC3339Nano),
 			})
 			metrics.ObserveHTTP(rule.Path, http.StatusTooManyRequests, time.Since(started))
 			return
@@ -206,7 +223,16 @@ func parseTrustedProxies(value string) ([]*net.IPNet, error) {
 	return result, nil
 }
 
-func resetTime(after time.Duration) string { return time.Now().Add(after).UTC().Format(time.RFC3339) }
+func resetTime(after time.Duration) string {
+	return time.Now().Add(after).UTC().Format(time.RFC3339Nano)
+}
+
+func resetSeconds(after time.Duration) int64 {
+	if after <= 0 {
+		return 0
+	}
+	return int64(math.Ceil(after.Seconds()))
+}
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
