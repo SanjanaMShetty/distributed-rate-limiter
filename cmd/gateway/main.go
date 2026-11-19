@@ -39,6 +39,7 @@ func main() {
 		logger.Error("invalid rate-limit engine configuration", "error", err)
 		os.Exit(1)
 	}
+	metrics.SetConfigVersion(limiter.ConfigVersion())
 	handler := newHandler(limiter, redisClient, metrics, settings.trustedProxies)
 	server := &http.Server{
 		Addr: settings.httpAddr, Handler: handler,
@@ -132,6 +133,8 @@ func loadRules() ([]engine.Rule, error) {
 		Capacity     float64 `json:"capacity"`
 		RefillPerSec float64 `json:"refill_per_second"`
 		KeyTTL       string  `json:"key_ttl"`
+		Algorithm    string  `json:"algorithm"`
+		Window       string  `json:"window"`
 		Identity     string  `json:"identity"`
 	}
 	if err := json.Unmarshal(data, &rawRules); err != nil {
@@ -147,7 +150,14 @@ func loadRules() ([]engine.Rule, error) {
 		if err != nil {
 			return nil, errors.New("rule " + raw.Name + ": invalid key_ttl")
 		}
-		rule := engine.Rule{Name: raw.Name, Path: raw.Path, Capacity: raw.Capacity, RefillPerSec: raw.RefillPerSec, KeyTTL: ttl, Identity: raw.Identity}
+		var window time.Duration
+		if raw.Window != "" {
+			window, err = time.ParseDuration(raw.Window)
+			if err != nil {
+				return nil, errors.New("rule " + raw.Name + ": invalid window")
+			}
+		}
+		rule := engine.Rule{Name: raw.Name, Path: raw.Path, Capacity: raw.Capacity, RefillPerSec: raw.RefillPerSec, KeyTTL: ttl, Algorithm: raw.Algorithm, Window: window, Identity: raw.Identity}
 		if err := rule.Validate(); err != nil {
 			return nil, err
 		}

@@ -12,6 +12,7 @@ type Metrics struct {
 	decisionDuration    prometheus.Histogram
 	storeErrors         prometheus.Counter
 	failOpenDecisions   prometheus.Counter
+	configVersion       *prometheus.GaugeVec
 	httpRequests        *prometheus.CounterVec
 	httpRequestDuration prometheus.Histogram
 }
@@ -22,7 +23,7 @@ func NewMetrics() *Metrics {
 		registry: registry,
 		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rate_limiter_decisions_total",
-			Help: "Number of allow and deny decisions returned by the token bucket.",
+			Help: "Number of allow and deny decisions returned by the rate-limit engine.",
 		}, []string{"outcome"}),
 		decisionDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "rate_limiter_decision_duration_seconds",
@@ -37,6 +38,10 @@ func NewMetrics() *Metrics {
 			Name: "rate_limiter_fail_open_total",
 			Help: "Number of requests allowed because Redis was unavailable or timed out.",
 		}),
+		configVersion: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rate_limiter_config_version_info",
+			Help: "The active normalized rate-limit configuration version on this gateway replica.",
+		}, []string{"version"}),
 		httpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "gateway_http_requests_total",
 			Help: "HTTP requests to the protected demo endpoint, grouped by route and status.",
@@ -47,7 +52,7 @@ func NewMetrics() *Metrics {
 			Buckets: prometheus.DefBuckets,
 		}),
 	}
-	registry.MustRegister(m.decisions, m.decisionDuration, m.storeErrors, m.failOpenDecisions, m.httpRequests, m.httpRequestDuration)
+	registry.MustRegister(m.decisions, m.decisionDuration, m.storeErrors, m.failOpenDecisions, m.configVersion, m.httpRequests, m.httpRequestDuration)
 	return m
 }
 
@@ -61,6 +66,11 @@ func (m *Metrics) ObserveDecision(outcome string, elapsed time.Duration) {
 func (m *Metrics) ObserveStoreError() { m.storeErrors.Inc() }
 
 func (m *Metrics) ObserveFailOpen() { m.failOpenDecisions.Inc() }
+
+func (m *Metrics) SetConfigVersion(version string) {
+	m.configVersion.Reset()
+	m.configVersion.WithLabelValues(version).Set(1)
+}
 
 func (m *Metrics) ObserveHTTP(route string, statusCode int, elapsed time.Duration) {
 	m.httpRequests.WithLabelValues(route, statusLabel(statusCode)).Inc()

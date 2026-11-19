@@ -27,3 +27,7 @@ Redis Cluster scripts are atomic on the node that owns a key. Cluster replicatio
 ## Phase 1 failure policy
 
 Quota breaches fail fast with HTTP 429 and are never queued in gateway memory. When Redis is slow or unavailable, each gateway uses a 10 ms decision budget and fails open so the product remains available. This intentionally allows unmetered traffic during an outage and favors availability over strict quota enforcement. Responses carry `RateLimit-Degraded: fail-open`, and the event is observable in Prometheus. A bounded local counter fallback is deferred to the resilience phase so its per-replica quota drift can be measured explicitly.
+
+## Algorithm selection
+
+Each path selects one algorithm in static rule configuration. The engine implements token bucket, fixed window, and sliding-window counter with Redis Lua. Healthy requests still execute one atomic script against shared Redis state. The engine computes a stable version hash from normalized rules; Prometheus labels it per gateway so configuration drift is visible.

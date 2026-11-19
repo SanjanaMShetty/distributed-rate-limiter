@@ -5,6 +5,7 @@
     "capacity": 10,
     "refill_per_second": 2,
     "key_ttl": "60s",
+    "algorithm": "token_bucket",
     "identity": "auto"
   },
   {
@@ -13,6 +14,27 @@
     "capacity": 5,
     "refill_per_second": 2,
     "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "auto"
+  },
+  {
+    "name": "fixed-window-demo",
+    "path": "/v1/fixed-window-demo",
+    "capacity": 10,
+    "refill_per_second": 0,
+    "key_ttl": "60s",
+    "algorithm": "fixed_window",
+    "window": "1s",
+    "identity": "auto"
+  },
+  {
+    "name": "sliding-window-counter-demo",
+    "path": "/v1/sliding-window-demo",
+    "capacity": 10,
+    "refill_per_second": 0,
+    "key_ttl": "60s",
+    "algorithm": "sliding_window_counter",
+    "window": "1s",
     "identity": "auto"
   }
 ]

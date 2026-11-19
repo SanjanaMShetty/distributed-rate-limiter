@@ -46,6 +46,15 @@
       "targets": [{ "expr": "increase(rate_limiter_fail_open_total[5m])", "legendFormat": "Fail-open decisions", "refId": "A" }],
       "title": "Allowed without Redis in the last five minutes",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "targets": [{ "expr": "rate_limiter_config_version_info", "legendFormat": "{{instance}} {{version}}", "refId": "A" }],
+      "title": "Active limiter configuration version by gateway",
+      "type": "stat"
     }
   ],
   "refresh": "5s",

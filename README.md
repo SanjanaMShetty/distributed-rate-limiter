@@ -1,6 +1,6 @@
 # Distributed Rate Limiter
 
-A learning project for building and measuring a low-latency, horizontally scalable rate limiter. The first milestone is a Go HTTP gateway with an in-process token-bucket middleware and Redis-backed shared state. Multiple gateway replicas use the same Redis state, so a caller has one quota across replicas.
+A learning project for building and measuring a low-latency, horizontally scalable rate limiter. The Go HTTP gateway calls a reusable in-process engine that uses Redis-backed shared state. Multiple gateway replicas use the same Redis state, so a caller has one quota across replicas.
 
 ## Current design
 
@@ -8,7 +8,7 @@ A learning project for building and measuring a low-latency, horizontally scalab
 HTTP clients
     |
     v
-Go gateway replicas (token-bucket middleware, Prometheus metrics)
+Go gateway replicas (selected engine algorithm, Prometheus metrics)
     |
     | one atomic Lua check-and-update per request
     v
@@ -32,6 +32,12 @@ Redis is the quota state store. PostgreSQL is not part of the MVP; it may be con
 - `/healthz`, `/readyz`, `/metrics`, graceful shutdown, Prometheus scraping of both gateways, and Grafana dashboards.
 
 Run unit and HTTP adapter tests with `go test ./...`. The real-Redis integration test is opt-in: start Compose, then run `make integration` (or set `REDIS_INTEGRATION_ADDR`).
+
+## Phase 2: correctness and algorithms
+
+Rules select `token_bucket`, `fixed_window`, or `sliding_window_counter` through `algorithm` in `deploy/compose/rules.json`. For window algorithms, `capacity` is the maximum count in the configured `window`; for token bucket it remains the burst capacity and `refill_per_second` is the sustained rate. Each gateway exports `rate_limiter_config_version_info{version=...}` so Prometheus can reveal config drift between replicas.
+
+The sliding-window counter is an approximation. The fixed-window and token-bucket tests check their own reference semantics; the sliding-window comparison records differences against an exact rolling-window log oracle rather than claiming the approximation never over-admits relative to that oracle. See `docs/algorithms.md` for the comparison notes and correctness results. Run `go test -race ./...` before completing this phase.
 
 ## Run locally
 
@@ -68,9 +74,11 @@ Each benchmark record must include hardware, versions, rule settings, request pr
 
 ## Planned milestones
 
-1. Local single-Redis token-bucket middleware and dashboard.
-2. Concurrency correctness and repeatable benchmark harness.
-3. Multiple algorithms and algorithm accuracy comparisons.
-4. Redis Cluster sharding, failover experiments, and measured hot-key mitigation.
-5. Kubernetes deployment, autoscaling, fault injection, and operational runbooks.
-6. Optional Envoy/gRPC integration comparison.
+1. Phase 0: setup, test workflow, and CI.
+2. Phase 1: shared quota across two gateways with the embedded engine.
+3. Phase 2: correctness models, algorithm selection, and configuration-drift visibility.
+4. Phase 3: Redis timeout/failure policies, local fallback experiments, and chaos testing.
+5. Phase 4: repeatable performance benchmarks, Prometheus alerting, and recorded results.
+6. Phase 5: Kubernetes/Helm, GitOps, scaling tests, and operational runbooks.
+7. Phase 6: AWS/EKS and ElastiCache validation with measured failover.
+8. Phase 7: compare embedded, gRPC, and HTTP service boundaries, then publish the demo/write-up.
