@@ -33,7 +33,7 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	metrics := observability.NewMetrics()
+	metrics := observability.NewMetrics(redisClient)
 	limiter, err := engine.New(redisClient, settings.rules, settings.redisTimeout, metrics)
 	if err != nil {
 		logger.Error("invalid rate-limit engine configuration", "error", err)

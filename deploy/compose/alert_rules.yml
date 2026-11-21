@@ -1,0 +1,51 @@
+groups:
+  - name: rate-limiter
+    rules:
+      - alert: RateLimiterGatewayUnavailable
+        expr: up{job="gateway"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "A rate limiter gateway is not being scraped"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for at least 30 seconds."
+
+      - alert: RateLimiterRedisErrors
+        expr: sum by (instance) (rate(rate_limiter_store_errors_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis decision errors are elevated"
+          description: "{{ $labels.instance }} is recording more than 0.1 Redis decision errors per second."
+
+      - alert: RateLimiterRedisPoolTimeouts
+        expr: rate(rate_limiter_redis_pool_timeouts_total[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway is waiting too long for Redis pool connections"
+          description: "{{ $labels.instance }} is experiencing Redis pool wait timeouts."
+
+      - alert: RateLimiterDegradedDecisions
+        expr: sum by (instance, policy) (rate(rate_limiter_degraded_decisions_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiting is using an outage policy"
+          description: "{{ $labels.instance }} is making degraded decisions with policy {{ $labels.policy }}."
+
+      - alert: RateLimiterGatewayHigh5xxRate
+        expr: |
+          sum by (instance) (rate(gateway_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum by (instance) (rate(gateway_http_requests_total[5m])), 1)
+          > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rate limiter gateway 5xx rate is above 1%"
+          description: "{{ $labels.instance }} has an elevated client-visible 5xx rate."

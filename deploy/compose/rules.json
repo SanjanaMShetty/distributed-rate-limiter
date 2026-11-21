@@ -9,6 +9,53 @@
     "identity": "auto"
   },
   {
+    "name": "benchmark-allow",
+    "path": "/v1/benchmark-allow",
+    "capacity": 1000000,
+    "refill_per_second": 100000,
+    "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "api_key"
+  },
+  {
+    "name": "benchmark-mixed",
+    "path": "/v1/benchmark-mixed",
+    "capacity": 100,
+    "refill_per_second": 50,
+    "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "api_key"
+  },
+  {
+    "name": "benchmark-token-bucket",
+    "path": "/v1/benchmark-token-bucket",
+    "capacity": 1000000,
+    "refill_per_second": 100000,
+    "key_ttl": "60s",
+    "algorithm": "token_bucket",
+    "identity": "api_key"
+  },
+  {
+    "name": "benchmark-fixed-window",
+    "path": "/v1/benchmark-fixed-window",
+    "capacity": 1000000,
+    "refill_per_second": 0,
+    "key_ttl": "120s",
+    "algorithm": "fixed_window",
+    "window": "1m",
+    "identity": "api_key"
+  },
+  {
+    "name": "benchmark-sliding-window",
+    "path": "/v1/benchmark-sliding-window",
+    "capacity": 1000000,
+    "refill_per_second": 0,
+    "key_ttl": "120s",
+    "algorithm": "sliding_window_counter",
+    "window": "1m",
+    "identity": "api_key"
+  },
+  {
     "name": "phase1-shared-quota-demo",
     "path": "/v1/phase1-demo",
     "capacity": 5,

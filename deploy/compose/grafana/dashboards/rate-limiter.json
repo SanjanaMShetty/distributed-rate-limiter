@@ -17,7 +17,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
       "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "A" }],
-      "title": "Redis-backed decision latency (p99)",
+      "title": "Engine decision latency (p99)",
       "type": "timeseries"
     },
     {
@@ -34,7 +34,7 @@
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
-      "targets": [{ "expr": "increase(rate_limiter_store_errors_total[5m])", "legendFormat": "Redis errors", "refId": "A" }],
+      "targets": [{ "expr": "increase(rate_limiter_store_errors_total[5m])", "legendFormat": "{{instance}}", "refId": "A" }],
       "title": "Redis errors in the last five minutes",
       "type": "timeseries"
     },
@@ -43,7 +43,7 @@
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 5,
-      "targets": [{ "expr": "increase(rate_limiter_fail_open_total[5m])", "legendFormat": "Fail-open decisions", "refId": "A" }],
+      "targets": [{ "expr": "increase(rate_limiter_fail_open_total[5m])", "legendFormat": "{{instance}}", "refId": "A" }],
       "title": "Allowed without Redis in the last five minutes",
       "type": "timeseries"
     },
@@ -70,7 +70,7 @@
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
       "id": 8,
-      "targets": [{ "expr": "rate_limiter_circuit_open_total", "legendFormat": "Circuit open", "refId": "A" }],
+      "targets": [{ "expr": "rate_limiter_circuit_open_total", "legendFormat": "{{instance}}", "refId": "A" }],
       "title": "Requests bypassing Redis due to open circuit",
       "type": "timeseries"
     },
@@ -79,7 +79,7 @@
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
       "id": 9,
-      "targets": [{ "expr": "rate_limiter_redis_inflight_rejected_total", "legendFormat": "In-flight cap", "refId": "A" }],
+      "targets": [{ "expr": "rate_limiter_redis_inflight_rejected_total", "legendFormat": "{{instance}}", "refId": "A" }],
       "title": "Checks diverted by Redis in-flight cap",
       "type": "timeseries"
     },
@@ -108,6 +108,69 @@
       "id": 12,
       "targets": [{ "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "{{instance}} heap", "refId": "A" }],
       "title": "Gateway allocated heap",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "id": 13,
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A" }],
+      "title": "Gateway end-to-end latency (p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "id": 14,
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "A" }],
+      "title": "Gateway end-to-end latency (p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
+      "id": 15,
+      "targets": [{ "expr": "rate(process_cpu_seconds_total[1m])", "legendFormat": "{{instance}} CPU cores", "refId": "A" }],
+      "title": "Gateway CPU cores used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 48 },
+      "id": 16,
+      "targets": [{ "expr": "up{job=\"gateway\"}", "legendFormat": "{{instance}}", "refId": "A" }],
+      "title": "Gateway scrape health (1 = up)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 8, "y": 48 },
+      "id": 17,
+      "targets": [{ "expr": "rate_limiter_redis_pool_connections", "legendFormat": "{{instance}} total", "refId": "A" }],
+      "title": "Redis pool connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 5, "x": 14, "y": 48 },
+      "id": 18,
+      "targets": [{ "expr": "rate_limiter_redis_pool_pending_requests", "legendFormat": "{{instance}} waiting", "refId": "A" }],
+      "title": "Redis pool waiters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 5, "x": 19, "y": 48 },
+      "id": 19,
+      "targets": [{ "expr": "sum by (instance) (rate(rate_limiter_redis_pool_timeouts_total[5m]))", "legendFormat": "{{instance}}", "refId": "A" }],
+      "title": "Redis pool wait timeouts",
       "type": "timeseries"
     }
   ],

@@ -5,3 +5,10 @@
 .idea/
 .vscode/
 *.log
+docs/benchmarks/results/**/results.bin
+docs/benchmarks/results/**/stall-soak.bin
+docs/benchmarks/results/**/targets.txt
+docs/benchmarks/results/**/metrics-*.txt
+docs/benchmarks/results/**/redis-*.txt
+docs/benchmarks/results/**/report.txt
+docs/benchmarks/results/**/vegeta-report.txt

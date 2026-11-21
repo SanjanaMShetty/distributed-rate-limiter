@@ -1,0 +1,7 @@
+.git
+.github
+docs/benchmarks/results
+outputs
+work
+**/*.bin
+**/targets.txt

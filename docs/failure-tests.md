@@ -172,4 +172,41 @@ The gateway now exposes Go runtime and process collectors, including `go_gorouti
 
 The script samples goroutine count, allocated heap, and resident memory every two seconds, captures the Vegeta report and resilience counters, removes the toxic, waits for the breaker cooldown, and sends fresh-identity recovery requests through both replicas. It writes the samples, raw Vegeta results, and recovery output under `docs/benchmarks/results/phase3-stall-soak-<UTC run id>/`.
 
-Evaluate resource samples as a time series: temporary heap and resident-memory changes are normal, but goroutines should return near baseline and memory should settle rather than grow continuously throughout the stall. This soak has not been run yet. The 100 requests/second default is intended for resource-growth observation; it is not high enough to saturate the 256-check Redis in-flight cap, which remains covered only by a unit test.
+Evaluate resource samples as a time series: temporary heap and resident-memory changes are normal, but goroutines should return near baseline and memory should settle rather than grow continuously throughout the stall. The five-minute run below is one observation, not proof that all leaks are absent. The 100 requests/second profile is intended for resource-growth observation; it is not high enough to saturate the 256-check Redis in-flight cap, which remains covered only by a unit test.
+
+### Observed 60-second run: 2026-11-19
+
+The default 60-second run offered 100 requests/second (6,000 total) during a stalled Redis response:
+
+| Result | Observation |
+|---|---:|
+| HTTP 200 / 429 | 124 / 5,876 |
+| 2xx ratio / throughput | 2.07% / 2.07/s |
+| Aggregate latency p50 / p95 / p99 / max | 0.666 / 0.929 / 8.368 / 13.730 ms |
+| Redis errors / circuit-open bypasses / in-flight rejections | 64 / 5,936 / 0 |
+| Goroutines first / min / max / last | 11 / 10 / 14 / 10 |
+| Heap MiB first / min / max / last | 2.07 / 1.02 / 3.00 / 2.22 |
+| RSS MiB first / min / max / last | 14.59 / 14.59 / 19.92 / 19.92 |
+
+The accepted count (124) is near the local capacity of five plus about 120 refilled tokens over one minute. Goroutines ended below their starting count and heap fluctuated without a steady increase in this sample. RSS rose by about 5.33 MiB and ended at its observed maximum; one minute is too short to distinguish runtime warm-up/allocator retention from gradual growth. This is preliminary evidence only; the five-minute soak remains necessary. The in-flight-rejection count stayed zero, so this run did not exercise the 256-check cap.
+
+After removing the toxic, Redis returned `PONG`; requests through gateways A and B returned 200 without degraded headers and remaining quota moved from 9 to 8. This confirms shared-quota recovery after the soak.
+
+### Observed five-minute run: 2026-11-19
+
+Run `20261119T141522Z` offered 100 requests/second for five minutes (30,000 total) through gateway A while Toxiproxy dropped Redis responses. The configured Redis timeout was 10 ms.
+
+| Result | Observation |
+|---|---:|
+| HTTP 200 / 429 | 604 / 29,396 |
+| 2xx ratio / throughput | 2.01% / 2.01/s |
+| Aggregate latency p50 / p95 / p99 / max | 0.664 / 0.892 / 7.992 / 20.171 ms |
+| Goroutines first / min / max / last | 9 / 9 / 13 / 9 |
+| Heap MiB first / min / max / last | 5.41 / 1.22 / 5.72 / 2.56 |
+| RSS MiB first / min / max / last | 24.22 / 18.69 / 24.22 / 19.96 |
+
+The allowed count is close to the local token bucket's capacity of five plus approximately 600 refilled tokens over five minutes. Goroutines returned to their starting count; heap and RSS fluctuated and ended below their initial samples, with no steady upward trend in this run. This is evidence against obvious resource growth under this specific profile, not a general leak guarantee. The maximum observed request latency was 20.171 ms, above the configured 10 ms Redis timeout; the timeout applies to the Redis operation, not total HTTP response time.
+
+The Prometheus counters in `summary.md` are cumulative since the gateway started and include the preceding 60-second soak. Use the per-run Vegeta report for this run's request totals. The in-flight rejection count remained zero, so this profile did not exercise the configured 256-check cap.
+
+After the toxic was removed, Redis returned `PONG`. Fresh-identity checks returned HTTP 200 without a degraded header through gateway A and then gateway B; remaining quota moved from 9 to 8. This confirms the shared Redis quota was available after recovery.

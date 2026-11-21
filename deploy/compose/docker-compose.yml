@@ -57,6 +57,13 @@ services:
       toxiproxy:
         condition: service_started
 
+  benchmark-baseline:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.benchmark-baseline
+    ports:
+      - "127.0.0.1:8082:8080"
+
   prometheus:
     image: prom/prometheus:latest
     command:
@@ -64,6 +71,7 @@ services:
       - "--storage.tsdb.path=/prometheus"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"

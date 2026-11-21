@@ -5,6 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/redis/go-redis/v9"
 )
 
 type Metrics struct {
@@ -21,7 +22,7 @@ type Metrics struct {
 	httpRequestDuration prometheus.Histogram
 }
 
-func NewMetrics() *Metrics {
+func NewMetrics(redisClients ...redis.UniversalClient) *Metrics {
 	registry := prometheus.NewRegistry()
 	m := &Metrics{
 		registry: registry,
@@ -75,6 +76,9 @@ func NewMetrics() *Metrics {
 		m.circuitOpen, m.inFlightRejected, m.degradedDecisions, m.configVersion,
 		m.httpRequests, m.httpRequestDuration,
 	)
+	if len(redisClients) > 0 && redisClients[0] != nil {
+		registry.MustRegister(newRedisPoolCollector(redisClients[0]))
+	}
 	return m
 }
 
@@ -121,5 +125,47 @@ func statusLabel(status int) string {
 		return "500"
 	default:
 		return "other"
+	}
+}
+
+type redisPoolCollector struct {
+	client redis.UniversalClient
+	descs  []*prometheus.Desc
+}
+
+func newRedisPoolCollector(client redis.UniversalClient) *redisPoolCollector {
+	return &redisPoolCollector{
+		client: client,
+		descs: []*prometheus.Desc{
+			prometheus.NewDesc("rate_limiter_redis_pool_connections", "Current Redis pool connections.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_idle_connections", "Current idle Redis pool connections.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_pending_requests", "Requests currently waiting for a Redis pool connection.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_hits_total", "Redis pool connection reuse hits.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_misses_total", "Redis pool connection misses that required a new connection.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_timeouts_total", "Redis pool connection wait timeouts.", nil, nil),
+			prometheus.NewDesc("rate_limiter_redis_pool_wait_duration_seconds_total", "Cumulative time spent waiting for Redis pool connections, in seconds.", nil, nil),
+		},
+	}
+}
+
+func (c *redisPoolCollector) Describe(ch chan<- *prometheus.Desc) {
+	for _, desc := range c.descs {
+		ch <- desc
+	}
+}
+
+func (c *redisPoolCollector) Collect(ch chan<- prometheus.Metric) {
+	stats := c.client.PoolStats()
+	values := []float64{
+		float64(stats.TotalConns), float64(stats.IdleConns), float64(stats.PendingRequests),
+		float64(stats.Hits), float64(stats.Misses), float64(stats.Timeouts),
+		float64(stats.WaitDurationNs) / float64(time.Second),
+	}
+	for i, value := range values {
+		metricType := prometheus.GaugeValue
+		if i >= 3 {
+			metricType = prometheus.CounterValue
+		}
+		ch <- prometheus.MustNewConstMetric(c.descs[i], metricType, value)
 	}
 }
