@@ -25,6 +25,8 @@ mkdir -p "$results_dir"
 docker build -f Dockerfile.loadgen -t "$image" .
 kind load docker-image "$image" --name "${KIND_CLUSTER:-rate-limiter}"
 
+# Intentional clear-text HTTP for synthetic load over Kind's private service network only.
+# The API-key value is a generated test identity, never a real credential; don't target untrusted networks.
 command="printf 'GET http://rate-limiter-distributed-rate-limiter/v1/benchmark-allow\\nX-API-Key: ${client_id}\\n\\n' | vegeta attack -rate=${rate} -duration=${duration} -workers=64 -max-workers=256 | vegeta report"
 kubectl -n "$namespace" create job "$job" --image="$image" -- /bin/sh -c "$command"
 

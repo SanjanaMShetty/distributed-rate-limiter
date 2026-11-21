@@ -3,13 +3,19 @@ set -Eeuo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
+readonly PROFILE_BASELINE="baseline"
+readonly REQUEST_LINE_FORMAT='GET %s%s\n'
+readonly API_KEY_HEADER_FORMAT='X-API-Key: %s\n\n'
+readonly BASELINE_REDIS_MESSAGE="Redis is not used by the baseline server."
+readonly BASELINE_METRICS_MESSAGE="Metrics endpoint not implemented for the isolated ${PROFILE_BASELINE} server."
+
 profile="${1:-}"
 if [[ -z "$profile" ]]; then
-	echo "usage: $0 {baseline|allow-hot|allow-many|mixed|deny-heavy|algo-token|algo-fixed|algo-sliding}" >&2
+	echo "usage: $0 {${PROFILE_BASELINE}|allow-hot|allow-many|mixed|deny-heavy|algo-token|algo-fixed|algo-sliding}" >&2
 	exit 2
 fi
 
-if [[ "$profile" == "baseline" ]]; then
+if [[ "$profile" == "$PROFILE_BASELINE" ]]; then
 	gateway="${GATEWAY:-http://localhost:8082}"
 else
 	gateway="${GATEWAY:-http://localhost:8080}"
@@ -30,7 +36,7 @@ if ! curl -fsS "$gateway/healthz" >/dev/null; then
 	echo "gateway is not healthy at $gateway" >&2
 	exit 1
 fi
-if [[ "$profile" != "baseline" ]]; then
+if [[ "$profile" != "$PROFILE_BASELINE" ]]; then
 	if ! docker compose -f deploy/compose/docker-compose.yml exec -T redis redis-cli ping | grep -qx PONG; then
 		echo "Redis is not responding; start the Compose stack first" >&2
 		exit 1
@@ -46,55 +52,56 @@ fi
 client_id="phase4-${profile}-${run_id}"
 target_file="$results_dir/targets.txt"
 case "$profile" in
-	baseline)
+	"$PROFILE_BASELINE")
 		path="/v1/benchmark-allow"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	allow-hot)
 		path="/v1/benchmark-allow"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	algo-token)
 		path="/v1/benchmark-token-bucket"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	algo-fixed)
 		path="/v1/benchmark-fixed-window"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	algo-sliding)
 		path="/v1/benchmark-sliding-window"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	allow-many)
 		path="/v1/benchmark-allow"
 		identity_count="$keys"
 		: > "$target_file"
 		for i in $(seq 1 "$keys"); do
-			printf 'GET %s%s\nX-API-Key: %s-%s\n\n' "$gateway" "$path" "$client_id" "$i" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" >> "$target_file"
+		printf 'X-API-Key: %s-%s\n\n' "$client_id" "$i" >> "$target_file"
 		done
 		;;
 	mixed)
 		path="/v1/benchmark-mixed"
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	deny-heavy)
 		path="/v1/resource"
 		for _ in $(seq 1 30); do
 			curl -sS -o /dev/null -H "X-API-Key: $client_id" "$gateway$path" || true
 		done
-		printf 'GET %s%s\n' "$gateway" "$path" > "$target_file"
-		printf 'X-API-Key: %s\n\n' "$client_id" >> "$target_file"
+		printf "$REQUEST_LINE_FORMAT" "$gateway" "$path" > "$target_file"
+		printf "$API_KEY_HEADER_FORMAT" "$client_id" >> "$target_file"
 		;;
 	*)
 		echo "unknown profile: $profile" >&2
-		echo "usage: $0 {baseline|allow-hot|allow-many|mixed|deny-heavy|algo-token|algo-fixed|algo-sliding}" >&2
+		echo "usage: $0 {${PROFILE_BASELINE}|allow-hot|allow-many|mixed|deny-heavy|algo-token|algo-fixed|algo-sliding}" >&2
 		exit 2
 		;;
 esac
@@ -111,8 +118,8 @@ esac
 	echo "- Logical CPUs: $(nproc)"
 	echo "- Go: $(go version 2>/dev/null || echo unavailable)"
 	echo "- Vegeta build: $(go version -m "$(command -v vegeta)" 2>/dev/null | sed -n '1,5p' | tr '\n' '; ')"
-	if [[ "$profile" == "baseline" ]]; then
-		echo "- Redis: not used by the no-op HTTP baseline"
+	if [[ "$profile" == "$PROFILE_BASELINE" ]]; then
+		echo "- Redis: not used by the no-op HTTP ${PROFILE_BASELINE}"
 	else
 		echo "- Redis: $(docker compose -f deploy/compose/docker-compose.yml exec -T redis redis-server --version 2>/dev/null | tr -d '\r')"
 	fi
@@ -120,20 +127,20 @@ esac
 	echo
 } > "$results_dir/metadata.md"
 
-if [[ "$profile" == "baseline" ]]; then
-	echo "Metrics endpoint not implemented for the isolated baseline server." > "$results_dir/metrics-before.txt"
+if [[ "$profile" == "$PROFILE_BASELINE" ]]; then
+	echo "$BASELINE_METRICS_MESSAGE" > "$results_dir/metrics-before.txt"
 	started_epoch="$(date +%s)"
 	vegeta attack -targets="$target_file" -rate="$rate" -duration="$duration" \
 		-workers=64 -max-workers=256 -output="$results_dir/results.bin"
 	ended_epoch="$(date +%s)"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-stats-before.txt"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-memory-before.txt"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-cpu-before.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-stats-before.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-memory-before.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-cpu-before.txt"
 	vegeta report "$results_dir/results.bin" > "$results_dir/report.txt"
-	echo "Metrics endpoint not implemented for the isolated baseline server." > "$results_dir/metrics-after.txt"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-stats-after.txt"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-memory-after.txt"
-	echo "Redis is not used by the baseline server." > "$results_dir/redis-cpu-after.txt"
+	echo "$BASELINE_METRICS_MESSAGE" > "$results_dir/metrics-after.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-stats-after.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-memory-after.txt"
+	echo "$BASELINE_REDIS_MESSAGE" > "$results_dir/redis-cpu-after.txt"
 else
 	curl -fsS "$gateway/metrics" > "$results_dir/metrics-before.txt"
 	docker compose -f deploy/compose/docker-compose.yml exec -T redis redis-cli INFO stats > "$results_dir/redis-stats-before.txt"
@@ -152,8 +159,8 @@ fi
 {
 	cat "$results_dir/metadata.md"
 	echo "- Wall-clock benchmark duration (seconds): $((ended_epoch - started_epoch))"
-	if [[ "$profile" == "baseline" ]]; then
-		echo "- Redis snapshots: not applicable to baseline"
+	if [[ "$profile" == "$PROFILE_BASELINE" ]]; then
+		echo "- Redis snapshots: not applicable to ${PROFILE_BASELINE}"
 	else
 		echo "- Redis INFO stats, memory, and CPU snapshots: redis-*-before.txt / redis-*-after.txt"
 	fi
@@ -162,8 +169,8 @@ fi
 } > "$results_dir/summary.md"
 
 echo "Benchmark artifacts saved in $results_dir"
-if [[ "$profile" == "baseline" ]]; then
-	echo "This isolated HTTP baseline does not use Redis or Toxiproxy."
+if [[ "$profile" == "$PROFILE_BASELINE" ]]; then
+	echo "This isolated HTTP ${PROFILE_BASELINE} does not use Redis or Toxiproxy."
 else
 	echo "Metrics snapshots and raw Vegeta results are included; Toxiproxy was checked for active toxics."
 fi

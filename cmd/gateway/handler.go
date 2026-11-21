@@ -71,40 +71,13 @@ func rateLimitHandler(limiter *engine.Engine, rule engine.Rule, trustedProxies [
 			metrics.ObserveHTTP(rule.Path, http.StatusServiceUnavailable, time.Since(started))
 			return
 		}
-		w.Header().Set("RateLimit-Limit", strconv.Itoa(decision.Limit))
-		if decision.Degraded {
-			degradedHeader := decision.DegradedPolicy
-			if degradedHeader == engine.FailureOpen {
-				degradedHeader = "fail-open"
-			}
-			w.Header().Set("RateLimit-Degraded", degradedHeader)
-			if decision.DegradedPolicy == engine.FailureClosed {
-				writeError(w, http.StatusServiceUnavailable, "rate_limiter_unavailable", "rate limiter unavailable; request was not forwarded")
-				metrics.ObserveHTTP(rule.Path, http.StatusServiceUnavailable, time.Since(started))
-				return
-			}
-			if decision.DegradedPolicy == engine.FailureLocal {
-				w.Header().Set("RateLimit-Remaining", strconv.Itoa(decision.Remaining))
-				w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetSeconds(decision.ResetAfter), 10))
-			}
-		} else {
-			w.Header().Set("RateLimit-Remaining", strconv.Itoa(decision.Remaining))
-			w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetSeconds(decision.ResetAfter), 10))
+		if !writeDecisionHeaders(w, decision) {
+			writeError(w, http.StatusServiceUnavailable, "rate_limiter_unavailable", "rate limiter unavailable; request was not forwarded")
+			metrics.ObserveHTTP(rule.Path, http.StatusServiceUnavailable, time.Since(started))
+			return
 		}
 		if !decision.Allowed {
-			resetAt := time.Now().Add(decision.ResetAfter)
-			seconds := int(math.Ceil(decision.RetryAfter.Seconds()))
-			if seconds < 1 {
-				seconds = 1
-			}
-			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"allowed": false, "error": "rate_limit_exceeded", "message": "request limit exceeded",
-				"limit": decision.Limit, "remaining": decision.Remaining,
-				"retry_after_seconds": seconds, "reset_at": resetAt.UTC().Format(time.RFC3339Nano),
-			})
+			writeRateLimitExceeded(w, decision)
 			metrics.ObserveHTTP(rule.Path, http.StatusTooManyRequests, time.Since(started))
 			return
 		}
@@ -115,6 +88,48 @@ func rateLimitHandler(limiter *engine.Engine, rule engine.Rule, trustedProxies [
 		wrapped := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(wrapped, r)
 		metrics.ObserveHTTP(rule.Path, wrapped.status, time.Since(started))
+	})
+}
+
+func writeDecisionHeaders(w http.ResponseWriter, decision engine.Decision) bool {
+	w.Header().Set("RateLimit-Limit", strconv.Itoa(decision.Limit))
+	if !decision.Degraded {
+		writeQuotaHeaders(w, decision)
+		return true
+	}
+
+	degradedHeader := decision.DegradedPolicy
+	if degradedHeader == engine.FailureOpen {
+		degradedHeader = "fail-open"
+	}
+	w.Header().Set("RateLimit-Degraded", degradedHeader)
+	if decision.DegradedPolicy == engine.FailureClosed {
+		return false
+	}
+	if decision.DegradedPolicy == engine.FailureLocal {
+		writeQuotaHeaders(w, decision)
+	}
+	return true
+}
+
+func writeQuotaHeaders(w http.ResponseWriter, decision engine.Decision) {
+	w.Header().Set("RateLimit-Remaining", strconv.Itoa(decision.Remaining))
+	w.Header().Set("RateLimit-Reset", strconv.FormatInt(resetSeconds(decision.ResetAfter), 10))
+}
+
+func writeRateLimitExceeded(w http.ResponseWriter, decision engine.Decision) {
+	resetAt := time.Now().Add(decision.ResetAfter)
+	seconds := int(math.Ceil(decision.RetryAfter.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"allowed": false, "error": "rate_limit_exceeded", "message": "request limit exceeded",
+		"limit": decision.Limit, "remaining": decision.Remaining,
+		"retry_after_seconds": seconds, "reset_at": resetAt.UTC().Format(time.RFC3339Nano),
 	})
 }
 
