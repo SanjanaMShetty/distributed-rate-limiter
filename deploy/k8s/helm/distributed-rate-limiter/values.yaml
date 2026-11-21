@@ -10,14 +10,14 @@ redis:
   image: redis:7-alpine
   port: 6379
   resources:
-    requests: {cpu: 50m, memory: 64Mi}
-    limits: {cpu: 250m, memory: 256Mi}
+    requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 64Mi}
+    limits: {cpu: 250m, memory: 256Mi, ephemeral-storage: 128Mi}
 gateway:
   redisTimeout: 10ms
   trustedProxies: ""
   resources:
-    requests: {cpu: 100m, memory: 64Mi}
-    limits: {cpu: 500m, memory: 256Mi}
+    requests: {cpu: 100m, memory: 64Mi, ephemeral-storage: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 128Mi}
 rules:
   - name: resource-per-client
     path: /v1/resource

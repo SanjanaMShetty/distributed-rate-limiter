@@ -19,6 +19,7 @@ spec:
       annotations:
         checksum/rules: {{ toJson .Values.rules | sha256sum | quote }}
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 20
       securityContext:
         runAsNonRoot: true

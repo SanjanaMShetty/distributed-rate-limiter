@@ -31,6 +31,7 @@ spec:
       labels:
         {{- include "distributed-rate-limiter.redisSelector" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       securityContext:
         seccompProfile:
           type: RuntimeDefault
