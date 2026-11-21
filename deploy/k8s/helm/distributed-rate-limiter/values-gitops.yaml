@@ -1,0 +1,10 @@
+image:
+  repository: ghcr.io/sanjanamshetty/distributed-rate-limiter
+  # Replace with a sha-<full-commit> tag published by .github/workflows/ci.yml.
+  tag: sha-REPLACE_WITH_COMMIT_SHA
+  pullPolicy: IfNotPresent
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 60

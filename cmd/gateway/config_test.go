@@ -20,12 +20,25 @@ func TestLoadRulesIncludesEachAlgorithmAndWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	algorithms := map[string]bool{}
+	windowRules := map[string]bool{}
+	windows := map[string]time.Duration{
+		"benchmark-fixed-window":      time.Minute,
+		"benchmark-sliding-window":    time.Minute,
+		"fixed-window-demo":           time.Second,
+		"sliding-window-counter-demo": time.Second,
+	}
 	for _, rule := range rules {
 		algorithms[rule.Algorithm] = true
-		if rule.Algorithm == engine.AlgorithmFixedWindow || rule.Algorithm == engine.AlgorithmSlidingWindowCounter {
-			if rule.Window != time.Second {
-				t.Errorf("%s window = %s, want 1s", rule.Name, rule.Window)
+		if want, ok := windows[rule.Name]; ok {
+			windowRules[rule.Name] = true
+			if rule.Window != want {
+				t.Errorf("%s window = %s, want %s", rule.Name, rule.Window, want)
 			}
+		}
+	}
+	for name := range windows {
+		if !windowRules[name] {
+			t.Errorf("rules file does not include window rule %q", name)
 		}
 	}
 	for _, name := range []string{engine.AlgorithmTokenBucket, engine.AlgorithmFixedWindow, engine.AlgorithmSlidingWindowCounter} {

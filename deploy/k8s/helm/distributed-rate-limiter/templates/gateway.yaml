@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "distributed-rate-limiter.fullname" . }}
+  labels:
+    {{- include "distributed-rate-limiter.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "distributed-rate-limiter.gatewaySelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "distributed-rate-limiter.gatewaySelector" . | nindent 8 }}
+      annotations:
+        checksum/rules: {{ toJson .Values.rules | sha256sum | quote }}
+    spec:
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: REDIS_ADDR
+              value: "{{ include "distributed-rate-limiter.fullname" . }}-redis:{{ .Values.redis.port }}"
+            - name: REDIS_TIMEOUT
+              value: {{ .Values.gateway.redisTimeout | quote }}
+            - name: LIMIT_RULES_FILE
+              value: /etc/rate-limiter/rules.json
+            - name: TRUSTED_PROXIES
+              value: {{ .Values.gateway.trustedProxies | quote }}
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/rate-limiter
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 12
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: rules
+          configMap:
+            name: {{ include "distributed-rate-limiter.fullname" . }}-rules

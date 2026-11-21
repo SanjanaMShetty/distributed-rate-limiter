@@ -2,7 +2,7 @@ groups:
   - name: rate-limiter
     rules:
       - alert: RateLimiterGatewayUnavailable
-        expr: up{job="gateway"} == 0
+        expr: up{job=~"gateway|rate-limiter-distributed-rate-limiter"} == 0
         for: 30s
         labels:
           severity: critical

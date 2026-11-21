@@ -1,187 +1,593 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "panels": [
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "targets": [{ "expr": "sum by (outcome) (rate(rate_limiter_decisions_total[1m]))", "legendFormat": "{{outcome}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(rate_limiter_decisions_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
       "title": "Rate limit decisions per second",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "id": 2,
-      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "A"
+        }
+      ],
       "title": "Engine decision latency (p99)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "id": 3,
-      "targets": [{ "expr": "sum by (status) (rate(gateway_http_requests_total[1m]))", "legendFormat": "HTTP {{status}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(gateway_http_requests_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m]))",
+          "legendFormat": "HTTP {{status}}",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway requests per second by result",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "id": 4,
-      "targets": [{ "expr": "increase(rate_limiter_store_errors_total[5m])", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "increase(rate_limiter_store_errors_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Redis errors in the last five minutes",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "id": 5,
-      "targets": [{ "expr": "increase(rate_limiter_fail_open_total[5m])", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "increase(rate_limiter_fail_open_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Allowed without Redis in the last five minutes",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "id": 6,
-      "targets": [{ "expr": "rate_limiter_config_version_info", "legendFormat": "{{instance}} {{version}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate_limiter_config_version_info{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}} {{version}}",
+          "refId": "A"
+        }
+      ],
       "title": "Active limiter configuration version by gateway",
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
       "id": 7,
-      "targets": [{ "expr": "sum by (policy, decision) (rate(rate_limiter_degraded_decisions_total[1m]))", "legendFormat": "{{policy}} / {{decision}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "sum by (policy, decision) (rate(rate_limiter_degraded_decisions_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m]))",
+          "legendFormat": "{{policy}} / {{decision}}",
+          "refId": "A"
+        }
+      ],
       "title": "Degraded decisions by outage policy",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
       "id": 8,
-      "targets": [{ "expr": "rate_limiter_circuit_open_total", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate(rate_limiter_circuit_open_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Requests bypassing Redis due to open circuit",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
       "id": 9,
-      "targets": [{ "expr": "rate_limiter_redis_inflight_rejected_total", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate(rate_limiter_redis_inflight_rejected_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Checks diverted by Redis in-flight cap",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
       "id": 10,
-      "targets": [{ "expr": "go_goroutines", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway goroutines",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
       "id": 11,
-      "targets": [{ "expr": "process_resident_memory_bytes", "legendFormat": "{{instance}} RSS", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}} RSS",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway resident memory",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
       "id": 12,
-      "targets": [{ "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "{{instance}} heap", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "go_memstats_heap_alloc_bytes{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}} heap",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway allocated heap",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
       "id": 13,
-      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(gateway_http_request_duration_seconds_bucket{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway end-to-end latency (p95)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 40
+      },
       "id": 14,
-      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(gateway_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(gateway_http_request_duration_seconds_bucket{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway end-to-end latency (p99)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 40
+      },
       "id": 15,
-      "targets": [{ "expr": "rate(process_cpu_seconds_total[1m])", "legendFormat": "{{instance}} CPU cores", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[1m])",
+          "legendFormat": "{{instance}} CPU cores",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway CPU cores used",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 48 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
       "id": 16,
-      "targets": [{ "expr": "up{job=\"gateway\"}", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "up{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Gateway scrape health (1 = up)",
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 6, "x": 8, "y": 48 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 8,
+        "y": 48
+      },
       "id": 17,
-      "targets": [{ "expr": "rate_limiter_redis_pool_connections", "legendFormat": "{{instance}} total", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate_limiter_redis_pool_connections{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}} total",
+          "refId": "A"
+        }
+      ],
       "title": "Redis pool connections",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 5, "x": 14, "y": 48 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 5,
+        "x": 14,
+        "y": 48
+      },
       "id": 18,
-      "targets": [{ "expr": "rate_limiter_redis_pool_pending_requests", "legendFormat": "{{instance}} waiting", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "rate_limiter_redis_pool_pending_requests{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}",
+          "legendFormat": "{{instance}} waiting",
+          "refId": "A"
+        }
+      ],
       "title": "Redis pool waiters",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 5, "x": 19, "y": 48 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 5,
+        "x": 19,
+        "y": 48
+      },
       "id": 19,
-      "targets": [{ "expr": "sum by (instance) (rate(rate_limiter_redis_pool_timeouts_total[5m]))", "legendFormat": "{{instance}}", "refId": "A" }],
+      "targets": [
+        {
+          "expr": "sum by (instance) (rate(rate_limiter_redis_pool_timeouts_total{job=\"rate-limiter-distributed-rate-limiter\",namespace=\"rate-limiter\"}[5m]))",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Redis pool wait timeouts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "id": 20,
+      "targets": [
+        {
+          "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"rate-limiter\",horizontalpodautoscaler=\"rate-limiter-distributed-rate-limiter\"}",
+          "legendFormat": "current",
+          "refId": "A"
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"rate-limiter\",horizontalpodautoscaler=\"rate-limiter-distributed-rate-limiter\"}",
+          "legendFormat": "desired",
+          "refId": "B"
+        }
+      ],
+      "title": "Kubernetes gateway replicas (actual vs desired)",
       "type": "timeseries"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": ["rate-limiter", "redis"],
-  "templating": { "list": [] },
-  "time": { "from": "now-15m", "to": "now" },
+  "tags": [
+    "rate-limiter",
+    "redis"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "Distributed Rate Limiter",
   "uid": "distributed-rate-limiter",
-  "version": 1
+  "version": 2
 }

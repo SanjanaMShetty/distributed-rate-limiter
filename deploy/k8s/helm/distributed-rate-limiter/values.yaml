@@ -1,0 +1,56 @@
+replicaCount: 2
+image:
+  repository: distributed-rate-limiter
+  tag: phase5
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 80
+redis:
+  image: redis:7-alpine
+  port: 6379
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 250m, memory: 256Mi}
+gateway:
+  redisTimeout: 10ms
+  trustedProxies: ""
+  resources:
+    requests: {cpu: 100m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+rules:
+  - name: resource-per-client
+    path: /v1/resource
+    capacity: 10
+    refill_per_second: 2
+    key_ttl: 60s
+    algorithm: token_bucket
+    identity: auto
+  - name: phase1-shared-quota-demo
+    path: /v1/phase1-demo
+    capacity: 5
+    refill_per_second: 2
+    key_ttl: 60s
+    algorithm: token_bucket
+    identity: auto
+  - name: benchmark-allow
+    path: /v1/benchmark-allow
+    capacity: 1000000
+    refill_per_second: 100000
+    key_ttl: 60s
+    algorithm: token_bucket
+    identity: api_key
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 60
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  labels: {}
+networkPolicy:
+  enabled: true

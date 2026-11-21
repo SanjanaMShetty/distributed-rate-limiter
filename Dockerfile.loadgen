@@ -1,0 +1,8 @@
+FROM golang:1.27-alpine AS build
+RUN go install github.com/tsenart/vegeta/v12@v12.13.0
+
+FROM alpine:3.22
+RUN adduser -D -u 10001 loadgen
+COPY --from=build /go/bin/vegeta /usr/local/bin/vegeta
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/vegeta"]
