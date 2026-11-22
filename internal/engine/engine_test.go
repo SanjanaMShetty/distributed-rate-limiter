@@ -180,35 +180,50 @@ func TestSlidingCounterAgainstExactWindowLogOracle(t *testing.T) {
 	var accepted []time.Duration
 	overAdmits := 0
 	for i, offset := range events {
-		server.SetTime(start.Add(offset))
-		cutoff := offset - time.Second
-		kept := accepted[:0]
-		for _, event := range accepted {
-			if event > cutoff {
-				kept = append(kept, event)
-			}
-		}
-		accepted = kept
-		oracleAllows := len(accepted) < limit
-		decision, err := limiter.Check(context.Background(), rule.Path, "client")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if decision.Allowed && !oracleAllows {
+		var overAdmitted bool
+		accepted, overAdmitted = checkSlidingOracleEvent(t, server, limiter, start, offset, i, accepted, limit)
+		if overAdmitted {
 			overAdmits++
-		}
-		if oracleAllows && decision.Allowed {
-			accepted = append(accepted, offset)
-		}
-		if !decision.Allowed && !oracleAllows && decision.Remaining < 0 {
-			t.Fatalf("negative remaining after denial: %+v", decision)
-		}
-		if i == 4 && (!decision.Allowed || oracleAllows) {
-			t.Fatalf("oracle fixture expected one approximate over-admit at event %d: allowed=%v oracle=%v", i, decision.Allowed, oracleAllows)
 		}
 	}
 	if overAdmits != 1 {
 		t.Fatalf("sliding-window counter oracle over-admits = %d, want 1 for documented boundary fixture", overAdmits)
+	}
+}
+
+func checkSlidingOracleEvent(t *testing.T, server *miniredis.Miniredis, limiter *Engine, start time.Time, offset time.Duration, index int, accepted []time.Duration, limit int) ([]time.Duration, bool) {
+	t.Helper()
+	server.SetTime(start.Add(offset))
+	accepted = pruneSlidingOracleEvents(accepted, offset-time.Second)
+	oracleAllows := len(accepted) < limit
+	decision, err := limiter.Check(context.Background(), "/sliding", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSlidingOracleDecision(t, index, decision, oracleAllows)
+	if oracleAllows && decision.Allowed {
+		accepted = append(accepted, offset)
+	}
+	return accepted, decision.Allowed && !oracleAllows
+}
+
+func pruneSlidingOracleEvents(events []time.Duration, cutoff time.Duration) []time.Duration {
+	kept := events[:0]
+	for _, event := range events {
+		if event > cutoff {
+			kept = append(kept, event)
+		}
+	}
+	return kept
+}
+
+func assertSlidingOracleDecision(t *testing.T, index int, decision Decision, oracleAllows bool) {
+	t.Helper()
+	if !decision.Allowed && !oracleAllows && decision.Remaining < 0 {
+		t.Fatalf("negative remaining after denial: %+v", decision)
+	}
+	if index == 4 && (!decision.Allowed || oracleAllows) {
+		t.Fatalf("oracle fixture expected one approximate over-admit at event %d: allowed=%v oracle=%v", index, decision.Allowed, oracleAllows)
 	}
 }
 

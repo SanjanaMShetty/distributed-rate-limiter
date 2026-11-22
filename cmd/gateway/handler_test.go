@@ -34,34 +34,55 @@ func TestTwoGatewayHandlersShareQuotaAndReturnRateLimitResponse(t *testing.T) {
 	first := makeTestHandler(t, server, 5)
 	second := makeTestHandler(t, server, 5)
 	for i := 0; i < 6; i++ {
-		handler := first
-		if i%2 == 1 {
-			handler = second
+		response := sendSharedQuotaRequest(t, chooseHandler(i, first, second))
+		assertSharedQuotaResponse(t, i, response)
+	}
+}
+
+func chooseHandler(index int, first, second http.Handler) http.Handler {
+	if index%2 == 1 {
+		return second
+	}
+	return first
+}
+
+func sendSharedQuotaRequest(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	request.Header.Set("X-API-Key", "shared-demo-key")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func assertSharedQuotaResponse(t *testing.T, index int, response *httptest.ResponseRecorder) {
+	t.Helper()
+	wantStatus := http.StatusOK
+	if index == 5 {
+		wantStatus = http.StatusTooManyRequests
+	}
+	if response.Code != wantStatus {
+		t.Fatalf("request %d returned %d, want %d; body=%s", index+1, response.Code, wantStatus, response.Body.String())
+	}
+	if index == 4 {
+		if got := response.Header().Get("RateLimit-Remaining"); got != "0" {
+			t.Fatalf("last allowed request remaining header = %q, want 0", got)
 		}
-		req := httptest.NewRequest("GET", "/v1/test", nil)
-		req.Header.Set("X-API-Key", "shared-demo-key")
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, req)
-		want := 200
-		if i == 5 {
-			want = 429
+	}
+	if index == 5 {
+		assertSharedQuotaDenied(t, response)
+	}
+}
+
+func assertSharedQuotaDenied(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	for key, want := range map[string]string{"RateLimit-Limit": "5", "RateLimit-Remaining": "0", "Retry-After": "1"} {
+		if got := response.Header().Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
 		}
-		if response.Code != want {
-			t.Fatalf("request %d returned %d, want %d; body=%s", i+1, response.Code, want, response.Body.String())
-		}
-		if i == 4 && response.Header().Get("RateLimit-Remaining") != "0" {
-			t.Fatalf("last allowed request remaining header = %q, want 0", response.Header().Get("RateLimit-Remaining"))
-		}
-		if i == 5 {
-			for key, wantValue := range map[string]string{"RateLimit-Limit": "5", "RateLimit-Remaining": "0", "Retry-After": "1"} {
-				if got := response.Header().Get(key); got != wantValue {
-					t.Errorf("%s = %q, want %q", key, got, wantValue)
-				}
-			}
-			if !strings.Contains(response.Body.String(), `"allowed":false`) {
-				t.Errorf("denial body missing allowed:false: %s", response.Body.String())
-			}
-		}
+	}
+	if !strings.Contains(response.Body.String(), `"allowed":false`) {
+		t.Errorf("denial body missing allowed:false: %s", response.Body.String())
 	}
 }
 

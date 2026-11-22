@@ -17,6 +17,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	contentTypeHeader = "Content-Type"
+	jsonContentType   = "application/json"
+)
+
 func newHandler(limiter *engine.Engine, redisClient redis.UniversalClient, metrics *observability.Metrics, trustedProxies []*net.IPNet) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry(), promhttp.HandlerOpts{}))
@@ -31,14 +36,14 @@ func newHandler(limiter *engine.Engine, redisClient redis.UniversalClient, metri
 		if err := redisClient.Ping(ctx).Err(); err != nil {
 			status = "degraded_fail_open"
 		}
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(contentTypeHeader, jsonContentType)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ready": true, "redis": status})
 	})
 	for _, rule := range limiter.Rules() {
 		rule := rule
 		mux.Handle(rule.Path, rateLimitHandler(limiter, rule, trustedProxies, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			decision, _ := decisionFromContext(r)
-			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set(contentTypeHeader, jsonContentType)
 			body := map[string]interface{}{"allowed": true, "limit": decision.Limit, "message": "request allowed"}
 			if decision.Degraded {
 				body["degraded"] = true
@@ -124,7 +129,7 @@ func writeRateLimitExceeded(w http.ResponseWriter, decision engine.Decision) {
 		seconds = 1
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, jsonContentType)
 	w.WriteHeader(http.StatusTooManyRequests)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"allowed": false, "error": "rate_limit_exceeded", "message": "request limit exceeded",
@@ -250,7 +255,7 @@ func resetSeconds(after time.Duration) int64 {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, jsonContentType)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": message})
 }

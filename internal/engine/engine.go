@@ -169,6 +169,16 @@ func (r Rule) Validate() error {
 	if algorithm == "" {
 		algorithm = AlgorithmTokenBucket
 	}
+	if err := validateAlgorithm(r, algorithm); err != nil {
+		return err
+	}
+	if err := validateIdentity(r); err != nil {
+		return err
+	}
+	return validateFailurePolicy(r, algorithm)
+}
+
+func validateAlgorithm(r Rule, algorithm string) error {
 	switch algorithm {
 	case AlgorithmTokenBucket:
 		if r.RefillPerSec <= 0 {
@@ -190,11 +200,19 @@ func (r Rule) Validate() error {
 	default:
 		return fmt.Errorf("rule %q uses unsupported algorithm %q", r.Name, algorithm)
 	}
+	return nil
+}
+
+func validateIdentity(r Rule) error {
 	switch r.Identity {
 	case "auto", "api_key", "user_id", "ip":
 	default:
 		return fmt.Errorf("rule %q identity must be auto, api_key, user_id, or ip", r.Name)
 	}
+	return nil
+}
+
+func validateFailurePolicy(r Rule, algorithm string) error {
 	policy := r.FailurePolicy
 	if policy == "" {
 		policy = FailureOpen
@@ -309,37 +327,43 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 	}
 	key := quotaKey(rule.Name, subject)
 	started := time.Now()
+	if !e.acquireRedisSlot() {
+		return e.recordDegraded(rule, key, started), nil
+	}
+	defer e.releaseRedisSlot()
+	if !e.breaker.allow() {
+		e.observeCircuitOpen()
+		return e.recordDegraded(rule, key, started), nil
+	}
+	return e.checkRedis(ctx, rule, key, started)
+}
+
+func (e *Engine) acquireRedisSlot() bool {
 	select {
 	case e.inFlight <- struct{}{}:
-		defer func() { <-e.inFlight }()
+		return true
 	default:
 		if observer, ok := e.observer.(interface{ ObserveRedisInFlightRejected() }); ok {
 			observer.ObserveRedisInFlightRejected()
 		}
-		return e.recordDegraded(rule, key, started), nil
+		return false
 	}
-	if !e.breaker.allow() {
-		if observer, ok := e.observer.(interface{ ObserveCircuitOpen() }); ok {
-			observer.ObserveCircuitOpen()
-		}
-		return e.recordDegraded(rule, key, started), nil
+}
+
+func (e *Engine) releaseRedisSlot() { <-e.inFlight }
+
+func (e *Engine) observeCircuitOpen() {
+	if observer, ok := e.observer.(interface{ ObserveCircuitOpen() }); ok {
+		observer.ObserveCircuitOpen()
 	}
+}
+
+func (e *Engine) checkRedis(ctx context.Context, rule Rule, key string, started time.Time) (Decision, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
-	var script string
-	var args []interface{}
-	switch rule.Algorithm {
-	case AlgorithmTokenBucket:
-		script = tokenBucketScript
-		args = []interface{}{rule.Capacity, rule.RefillPerSec, rule.KeyTTL.Milliseconds()}
-	case AlgorithmFixedWindow:
-		script = fixedWindowScript
-		args = []interface{}{rule.Capacity, rule.Window.Milliseconds(), rule.KeyTTL.Milliseconds()}
-	case AlgorithmSlidingWindowCounter:
-		script = slidingWindowCounterScript
-		args = []interface{}{rule.Capacity, rule.Window.Milliseconds(), rule.KeyTTL.Milliseconds()}
-	default:
-		return Decision{}, fmt.Errorf("unsupported rate-limit algorithm %q", rule.Algorithm)
+	script, args, err := scriptForRule(rule)
+	if err != nil {
+		return Decision{}, err
 	}
 	result, err := redis.NewScript(script).Run(checkCtx, e.client, []string{key}, args...).Result()
 	elapsed := time.Since(started)
@@ -355,6 +379,24 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 		return e.recordDegraded(rule, key, started), nil
 	}
 	e.breaker.success()
+	return decisionFromRedisResult(result, rule, elapsed, e.observer)
+}
+
+func scriptForRule(rule Rule) (string, []interface{}, error) {
+	args := []interface{}{rule.Capacity, rule.Window.Milliseconds(), rule.KeyTTL.Milliseconds()}
+	switch rule.Algorithm {
+	case AlgorithmTokenBucket:
+		return tokenBucketScript, []interface{}{rule.Capacity, rule.RefillPerSec, rule.KeyTTL.Milliseconds()}, nil
+	case AlgorithmFixedWindow:
+		return fixedWindowScript, args, nil
+	case AlgorithmSlidingWindowCounter:
+		return slidingWindowCounterScript, args, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported rate-limit algorithm %q", rule.Algorithm)
+	}
+}
+
+func decisionFromRedisResult(result interface{}, rule Rule, elapsed time.Duration, observer Observer) (Decision, error) {
 	values, ok := result.([]interface{})
 	if !ok || len(values) != 4 {
 		return Decision{}, errors.New("unexpected Redis script response")
@@ -379,8 +421,8 @@ func (e *Engine) Check(ctx context.Context, path, subject string) (Decision, err
 	if allowed == 1 {
 		outcome = "allow"
 	}
-	if e.observer != nil {
-		e.observer.ObserveDecision(outcome, elapsed)
+	if observer != nil {
+		observer.ObserveDecision(outcome, elapsed)
 	}
 	return Decision{
 		Allowed: allowed == 1, Limit: int(math.Ceil(rule.Capacity)), Remaining: int(remaining),
