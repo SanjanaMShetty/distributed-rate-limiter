@@ -176,12 +176,13 @@ func TestSlidingCounterAgainstExactWindowLogOracle(t *testing.T) {
 	const limit = 4
 	rule := Rule{Name: "sliding-oracle", Path: "/sliding", Algorithm: AlgorithmSlidingWindowCounter, Capacity: limit, Window: time.Second, KeyTTL: 3 * time.Second, Identity: "api_key"}
 	limiter := algorithmEngine(t, server, rule)
+	fixture := slidingOracleFixture{server: server, limiter: limiter, start: start, limit: limit}
 	events := []time.Duration{950 * time.Millisecond, 950 * time.Millisecond, 950 * time.Millisecond, 950 * time.Millisecond, 1010 * time.Millisecond, 1020 * time.Millisecond, 1951 * time.Millisecond}
 	var accepted []time.Duration
 	overAdmits := 0
 	for i, offset := range events {
 		var overAdmitted bool
-		accepted, overAdmitted = checkSlidingOracleEvent(t, server, limiter, start, offset, i, accepted, limit)
+		accepted, overAdmitted = checkSlidingOracleEvent(t, fixture, offset, i, accepted)
 		if overAdmitted {
 			overAdmits++
 		}
@@ -191,12 +192,19 @@ func TestSlidingCounterAgainstExactWindowLogOracle(t *testing.T) {
 	}
 }
 
-func checkSlidingOracleEvent(t *testing.T, server *miniredis.Miniredis, limiter *Engine, start time.Time, offset time.Duration, index int, accepted []time.Duration, limit int) ([]time.Duration, bool) {
+type slidingOracleFixture struct {
+	server  *miniredis.Miniredis
+	limiter *Engine
+	start   time.Time
+	limit   int
+}
+
+func checkSlidingOracleEvent(t *testing.T, fixture slidingOracleFixture, offset time.Duration, index int, accepted []time.Duration) ([]time.Duration, bool) {
 	t.Helper()
-	server.SetTime(start.Add(offset))
+	fixture.server.SetTime(fixture.start.Add(offset))
 	accepted = pruneSlidingOracleEvents(accepted, offset-time.Second)
-	oracleAllows := len(accepted) < limit
-	decision, err := limiter.Check(context.Background(), "/sliding", "client")
+	oracleAllows := len(accepted) < fixture.limit
+	decision, err := fixture.limiter.Check(context.Background(), "/sliding", "client")
 	if err != nil {
 		t.Fatal(err)
 	}
