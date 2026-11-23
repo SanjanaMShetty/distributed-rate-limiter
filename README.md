@@ -1,114 +1,115 @@
 # Distributed Rate Limiter
 
-A learning project for building and measuring a low-latency, horizontally scalable rate limiter. The Go HTTP gateway calls a reusable in-process engine that uses Redis-backed shared state. Multiple gateway replicas use the same Redis state, so a caller has one quota across replicas.
+A Go rate-limiting engine embedded in a small HTTP gateway. Gateway replicas use Redis to make atomic quota decisions, so a client shares one limit across replicas. The project explores correctness, latency, outage behavior, Kubernetes operations, and measured trade-offs.
 
-## Current design
+> This is a measured systems project and local Kubernetes demo. Its benchmark results are specific to the recorded WSL2/Docker Desktop environment; they are not production capacity guarantees.
+
+## How a request is limited
 
 ```text
-HTTP clients
-    |
-    v
-Go gateway replicas (selected engine algorithm)
-    |
-    | one atomic Lua check-and-update per request
-    v
-Toxiproxy (Compose-only fault injection; no toxic in normal runs)
-    |
-    v
-Redis (single node locally; Redis Cluster in the sharding milestone)
-
-Prometheus --scrapes /metrics--> Go gateway replicas
-Grafana ----------------------> Prometheus
+Client → Go HTTP gateway → reusable Go engine → Redis Lua script
+                                  └── Prometheus metrics → Grafana
 ```
 
-The request path stays in the gateway process and makes one Redis round trip. We are not putting a separate gRPC decision service in the MVP hot path: that would add another network hop. A gRPC integration can be added later as a comparison, with its added latency measured against the middleware design.
+The engine resolves a request identity and rule, then runs one Redis Lua script to atomically refill/count, decide, update state, and set key expiry. Multiple gateways therefore enforce a shared quota. The engine is a Go package (`internal/engine`); the gateway adapts HTTP identities, status codes, and headers around it.
 
-Toxiproxy is included only in the local Compose environment to inject Redis delay and outages. The rate-limiter production topology being evaluated remains gateway-to-Redis; Toxiproxy is not a required production component.
+There is no separate rate-limit service on the request path. This avoids an additional network hop. A remote gRPC adapter is a possible future comparison, not part of the current measured design.
 
-Redis is the quota state store. PostgreSQL is not part of the MVP; it may be considered later for durable rule management or audit history if the project gains those requirements. Prometheus stores time-series metrics separately from quota state.
+## What it supports
 
-## Phase 1: shared quota across gateway replicas
+- **Identity:** API key, user ID, or client IP. Forwarded IP headers are considered only for configured trusted proxies.
+- **Algorithms:** token bucket, fixed window, and sliding-window counter, selected per rule.
+- **Responses:** immediate `429 Too Many Requests` on limit breaches, with `Retry-After` and rate-limit headers. Excess requests are not queued.
+- **Redis outage policies:** fail-open, fail-closed (`503`), or bounded per-gateway local token-bucket fallback. Local fallback keeps traffic available but quotas can diverge between gateways.
+- **Operations:** health endpoints, graceful shutdown, Prometheus metrics and alerts, Grafana dashboard, Redis fault injection with Toxiproxy, Helm deployment, CPU-based HPA, and GitHub Actions checks/scans.
 
-- Reusable `internal/engine` package resolves a path to a rule and makes the Redis-backed decision; the HTTP gateway only extracts identity and adapts the response.
-- Two gateway containers on ports 8080 and 8081 share one Redis instance. The `/v1/phase1-demo` rule has capacity five for a repeatable cross-replica demo.
-- The Redis Lua script atomically refills, decides, writes state, and sets a TTL. Tests check the key TTL and concurrent calls through two engines.
-- Rules load at startup from `deploy/compose/rules.json`. Identities include API key, user ID, and IP. `X-Forwarded-For` is used only when `TRUSTED_PROXIES` contains the connecting proxy's CIDR.
-- Redis checks have a strict 10 ms default timeout. The default outage policy is `fail_open`; rules can also select `fail_closed` or `local`. Local fallback uses a bounded, per-gateway token bucket, so quotas may diverge between replicas while Redis is unavailable. This is a deliberate availability trade-off, not a globally consistent fallback.
-- A limit breach fails fast with HTTP 429, `Retry-After`, and `RateLimit-*` headers. Requests are never queued in an application-side buffer. The gateway can start while Redis is unavailable.
-- `/healthz`, `/readyz`, `/metrics`, graceful shutdown, Prometheus scraping of both gateways, and Grafana dashboards.
-
-Run unit and HTTP adapter tests with `go test ./...`. The real-Redis integration test is opt-in: start Compose, then run `make integration` (or set `REDIS_INTEGRATION_ADDR`).
-
-## Phase 2: correctness and algorithms
-
-Rules select `token_bucket`, `fixed_window`, or `sliding_window_counter` through `algorithm` in `deploy/compose/rules.json`. For window algorithms, `capacity` is the maximum count in the configured `window`; for token bucket it remains the burst capacity and `refill_per_second` is the sustained rate. Each gateway exports `rate_limiter_config_version_info{version=...}` so Prometheus can reveal config drift between replicas.
-
-The sliding-window counter is an approximation. The fixed-window and token-bucket tests check their own reference semantics; the sliding-window comparison records differences against an exact rolling-window log oracle rather than claiming the approximation never over-admits relative to that oracle. See `docs/algorithms.md` for the comparison notes and correctness results. Run `go test -race ./...` before completing this phase.
-
-## Phase 3: outage policies
-
-Each rule may set `failure_policy` to `fail_open`, `fail_closed`, or `local`. The default remains `fail_open`. `fail_closed` rejects a request with HTTP 503 when Redis cannot answer within the configured timeout. `local` uses an in-memory token bucket on that gateway replica, bounded to 10,000 active identities with least-recently-used eviction and a five-minute idle expiry. Local fallback limits are per replica and are not synchronized; restarting a gateway clears its local state. The local fallback currently supports token-bucket rules only.
-
-The Compose rules include `/v1/local-fallback-demo` and `/v1/fail-closed-demo`. To exercise them, stop Redis after the gateways have started, then send repeated requests with the same identity. Restore Redis afterward. A per-gateway circuit breaker opens after five Redis errors and allows one recovery probe after one second. Redis checks are admitted without queueing up to a cap of 256 in flight; excess checks immediately use the rule's outage policy. Prometheus exports `rate_limiter_circuit_open_total` and `rate_limiter_redis_inflight_rejected_total`. Automated tests cover policy behavior, breaker state transitions, the in-flight cap, and HTTP status/header behavior. Controlled latency and five-minute stalled-response soak runs have been recorded; further higher-concurrency and multi-replica resilience runs remain useful follow-up work. See [`docs/failure-tests.md`](docs/failure-tests.md) for the Toxiproxy experiment instructions; its admin API is bound to localhost only.
-
-The first two-replica outage experiment admitted five local requests per gateway (10 total against a configured capacity of five), returned 429 after each local bucket emptied, and resumed shared Redis quota after Redis recovered. Under a 25 ms Redis response delay, each gateway separately handled 500 offered requests at 100/s: 14 returned 200 and 486 returned the expected 429, with no 5xx. Aggregate p99 was 12.4–12.6 ms, dominated by the timeout transition; most responses were fast denials. A stalled-response test produced the same local quota behavior and recovered to shared Redis quota (remaining 9 then 8 across gateways). These are initial fault-injection results, not a healthy-state capacity benchmark; see [`docs/failure-tests.md`](docs/failure-tests.md) for conditions, results, and limitations.
-
-Use `scripts/chaos/compare-failure-policies.sh` to run a repeatable same-profile comparison of fail-open, local fallback, and fail-closed under injected Redis latency. In the first run, fail-open returned 500/500 requests as 200, local fallback returned 14/500 as 200 and 486 as 429, and fail-closed returned 500 intentional 503 responses. The run saved raw Vegeta results, reports, and gateway metrics under `docs/benchmarks/results/`; see [`docs/failure-tests.md`](docs/failure-tests.md) for full latency results and limits.
-
-Prometheus also scrapes Go runtime and process metrics for goroutine and memory growth. Use `scripts/chaos/redis-stall-soak.sh` to run a stalled-Redis soak and save resource samples, Vegeta output, and recovery checks. The recorded five-minute run did not show a steady resource-growth trend; the default soak profile does not saturate the 256-check in-flight cap.
+Redis is the shared quota-state store. PostgreSQL is not used: durable rule administration and audit history are outside the current scope.
 
 ## Run locally
 
-Prerequisites: Go 1.27+, Docker Desktop with Compose.
+Prerequisites: Go 1.27+, Docker Desktop, and Docker Compose.
 
-```powershell
+```bash
 docker compose -f deploy/compose/docker-compose.yml up --build
 ```
 
-Then open:
+Then try the gateway and dashboards:
 
-- Demo endpoint: `http://localhost:8080/v1/resource`
-- Second gateway: `http://localhost:8081/v1/resource`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (local demo credentials: `admin` / `admin`)
+| Service | Address |
+|---|---|
+| Gateway replicas | `http://localhost:8080`, `http://localhost:8081` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3000` (`admin` / `admin` for the local demo) |
 
-Send repeated requests with the same `X-API-Key`, `X-User-ID`, or `X-Client-ID` to observe one quota. Change `deploy/compose/rules.json` to adjust the rule; rule changes take effect after restarting the gateway. A token bucket is not a fixed window: capacity sets the maximum burst and refill rate sets the sustained allowance. The checked-in values are demo settings, not production recommendations.
+Send repeated requests with the same identity header to either gateway. Rules are in [`deploy/compose/rules.json`](deploy/compose/rules.json); restart the gateway after editing them.
 
-### Rate-limit response fields
+```bash
+curl -i -H 'X-API-Key: demo-client' http://localhost:8080/v1/resource
+curl -i -H 'X-API-Key: demo-client' http://localhost:8081/v1/resource
+```
 
-- `RateLimit-Limit`: configured bucket capacity or window limit.
-- `RateLimit-Remaining`: whole quota units available now (token bucket values are floored).
-- `RateLimit-Reset`: **seconds from now**, rounded up, until a token bucket is full or the configured window boundary is reached. It is not a Unix timestamp.
-- JSON `reset_at`: the corresponding absolute UTC timestamp with sub-second precision.
-- `Retry-After`: on 429, whole seconds to wait until at least one token/window slot should be available; it rounds up. On an allowed response, `Retry-After: 0` means no wait is required.
-- During fail-open, quota state is unknown, so `remaining` and `reset_at` are `null`. The `RateLimit-Degraded` header identifies the outage policy in effect.
+The demo rule is intentionally small so that allowed and denied responses are easy to observe. These values are for demonstration, not a general-purpose production policy.
 
-These separate `RateLimit-*` fields use this project's documented response contract; they are not the current IETF Internet-Draft format. The active draft defines `RateLimit-Policy` and a `RateLimit` field whose `t` parameter is a relative effective-window value. See the [current IETF draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) before claiming standards compatibility.
+## Verify and explore
 
-To prove the shared five-request quota, send the first five requests to port 8080 and the next request to port 8081, using the same unique `X-API-Key`, against `/v1/phase1-demo`. The sixth should return 429. To exercise the real Redis integration test, run `make integration` while the Compose Redis service is running.
+```bash
+go test ./...
+go vet ./...
+go build ./...
+CGO_ENABLED=1 go test -race ./...
+```
 
-## Measurement plan
+With Compose Redis running, run the opt-in real-Redis integration tests:
 
-No performance number is a target until a repeatable benchmark produces it. Record:
+```bash
+make integration
+```
 
-- Checks per second and p50/p95/p99 decision latency.
-- Added latency against a no-op gateway baseline.
-- Allowed, denied, and error rates for allowed-heavy, mixed, and deny-heavy traffic.
-- Over-admits and under-admits under concurrency across multiple gateway replicas.
-- Throughput and tail latency as gateway replicas and Redis shards increase.
-- CPU and memory per process, Redis operations per second, and hot-key impact.
-- Redis outage/failover error window, degraded decisions, and quota updates lost during failover.
+For the Kubernetes walkthrough, use [`docs/kubernetes/phase5.md`](docs/kubernetes/phase5.md). It covers the local Kind cluster, Helm chart, in-cluster load generator, and CPU HPA. The checked-in chart uses a single ephemeral Redis pod for local experiments; it is not a highly available Redis deployment.
 
-Each benchmark record must include hardware, versions, rule settings, request profile, concurrency, warm-up, run duration, and raw results. See `docs/benchmarks/plan.md`.
+## Measurements
 
-## Planned milestones
+The recorded results below are from WSL2 on an 18-logical-CPU host, Go 1.27.4, Redis 7.4.12, and Vegeta 12.13.0. They should be read with their test conditions and limitations in [`docs/benchmarks/phase4-results.md`](docs/benchmarks/phase4-results.md) and [`docs/kubernetes/phase5-results.md`](docs/kubernetes/phase5-results.md).
 
-1. Phase 0: setup, test workflow, and CI.
-2. Phase 1: shared quota across two gateways with the embedded engine.
-3. Phase 2: correctness models, algorithm selection, and configuration-drift visibility.
-4. Phase 3: Redis timeout/failure policies, circuit breaker, local fallback experiments, and chaos testing.
-5. Phase 4: repeatable performance benchmarks, Prometheus alerting, and recorded results.
-6. Phase 5: Kubernetes/Helm, GitOps, scaling tests, and operational runbooks.
-7. Phase 6: compare embedded, gRPC, and HTTP service boundaries, then publish the demo/write-up.
+| Experiment | Observed result |
+|---|---|
+| Compose allow-heavy, one hot identity, 100 requests/s | 100% HTTP 200; median p99 1.99 ms across three 30-second runs |
+| Compose baseline comparison, 100 requests/s | Gateway median p95 1.59 ms vs. no-op HTTP baseline 0.90 ms in the recorded runs |
+| Compose rate sweep, one hot identity | 100% HTTP 200 at 1,000 offered requests/s in one 30-second run; this did not find the capacity ceiling |
+| Kind load with CPU HPA | 1,000 requests/s for 90 seconds; 90,000 HTTP 200 responses; HPA scaled from 2 to 8 gateway replicas and later back to 2 |
 
-Phase 4 benchmark profiles and instructions are in [`docs/benchmarks/phase4.md`](docs/benchmarks/phase4.md); initial local measurements are summarized in [`docs/benchmarks/phase4-results.md`](docs/benchmarks/phase4-results.md). They are a Compose baseline, not production capacity guarantees. AWS validation is outside this project's planned scope.
+These measurements demonstrate behavior at specific offered loads; they do not establish maximum throughput or prove that replica scaling improves latency. Kubernetes tail latency varied between runs. See the results documents for p50/p95/p99 ranges, disruption tests, and caveats.
+
+## Repository map
+
+```text
+cmd/gateway/                 HTTP gateway
+internal/engine/             reusable rate-limit engine and Redis scripts
+internal/observability/      Prometheus metrics
+deploy/compose/              local Redis, gateways, Prometheus, Grafana, Toxiproxy
+deploy/k8s/helm/             Kubernetes Helm chart
+deploy/k8s/argocd/           Argo CD Application manifest
+scripts/                     benchmark, chaos, and Kubernetes workflows
+docs/                        architecture, algorithm, failure, and benchmark notes
+```
+
+## Design notes and limitations
+
+- Token bucket allows bursts up to capacity, then refills at the configured rate. Fixed window can burst at adjacent window boundaries. Sliding-window counter is an approximation and can differ from an exact rolling log.
+- Redis provides the shared decision state, but a single Redis instance is a local-demo topology. Redis Cluster, managed failover, and their consistency/performance trade-offs have not been validated here.
+- Fail-open intentionally allows unmetered traffic when Redis is unavailable. Local fallback limits are per gateway and may over-admit globally. Choose policy per rule based on the protected resource.
+- CPU HPA scales gateway pods, not Redis. The measured HPA run is evidence for that local cluster and workload only.
+- The in-cluster synthetic load generator uses HTTP on a private Kind ClusterIP service with generated identities. It must not be exposed to untrusted networks; production traffic should terminate TLS at the ingress boundary.
+
+## Future improvements
+
+- **Compare a separate gRPC decision service** with the current embedded engine. Keep the Redis setup and load profile the same, then compare p50/p95/p99 latency and throughput to quantify the cost of the extra network hop.
+- **Evaluate demand-based autoscaling** against the current CPU HPA. Compare requests per second per pod with queue depth or in-flight requests; these signals may better reflect gateway pressure than total request rate. Include Redis saturation and tail latency so scaling gateways does not simply push overload to Redis. Use a custom or external metrics adapter if the chosen signal is not available through the standard resource metrics API.
+
+## Further reading
+
+- [Architecture decisions](docs/architecture.md)
+- [Algorithm behavior and correctness](docs/algorithms.md)
+- [Redis failure experiments](docs/failure-tests.md)
+- [Benchmark plan and results](docs/benchmarks/plan.md) · [Phase 4 results](docs/benchmarks/phase4-results.md)
+- [Kubernetes guide](docs/kubernetes/phase5.md) · [Phase 5 results](docs/kubernetes/phase5-results.md)
